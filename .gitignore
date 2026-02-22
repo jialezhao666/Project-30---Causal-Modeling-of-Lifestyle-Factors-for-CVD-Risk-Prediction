@@ -1,1 +1,3 @@
 data_check.ipynb
+data/
+*.parquet
