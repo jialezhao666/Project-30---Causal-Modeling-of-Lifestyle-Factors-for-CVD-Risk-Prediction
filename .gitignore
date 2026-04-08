@@ -1,3 +1,6 @@
 data_check.ipynb
 data/
 *.parquet
+*.o*
+submit_test.sh
+test.py
