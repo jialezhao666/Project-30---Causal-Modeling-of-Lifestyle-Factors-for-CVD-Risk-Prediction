@@ -4,3 +4,5 @@ data/
 *.o*
 submit_test.sh
 test.py
+const_paths.py
+__pycache__/
