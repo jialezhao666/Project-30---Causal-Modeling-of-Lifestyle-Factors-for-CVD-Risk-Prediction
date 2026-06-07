@@ -1,0 +1,18 @@
+COHORT CHARACTERISTICS TABLE
+==========================================================================================
+Characteristic                 Full UKB (n=458,840)       Split B (n=298,245)  Imaging visit (n=73,639)
+-------------------------------------------------------------------------------------------------------
+N                                           458,840                   298,245                    73,639
+Age (mean ± SD)                          56.2 ± 8.1                56.2 ± 8.1                54.7 ± 7.6
+BMI (mean ± SD)                          27.2 ± 4.7                27.2 ± 4.6                26.5 ± 4.2
+Male (%)                                       43.8                      43.7                      47.3
+Current smoker (%)                             10.4                      10.4                       6.5
+PA active (%)                                  81.8                      81.8                      81.7
+Adequate sleep (%)                             75.6                      75.6                      78.1
+University degree (%)                          33.4                      33.4                      45.6
+Mental health visit (%)                        33.9                      33.9                      31.5
+FH CVD father (%)                              38.3                      38.2                      39.8
+FH CVD mother (%)                              27.9                      27.9                      27.3
+FH CVD sibling (%)                             12.2                      12.2                      10.3
+Current drinker (%)                            92.5                      92.5                      95.3
+CVD events (%)                                  8.8                       8.8                       5.2

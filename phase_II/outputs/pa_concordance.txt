@@ -1,0 +1,21 @@
+PA definition concordance at BASELINE
+============================================================
+data basis : full
+n compared : 405,713  (imaging-visit participants with PA_active available)
+raw agreement : 0.7160
+Cohen's kappa : 0.3908
+
+Cross-tab (rows = PA_active （22036）; cols = 884+904 approx):
+884+904 approx          0       1     All
+PA_active (22036)                        
+0                   69730    3613   73343
+1                  111593  220777  332370
+All                181323  224390  405713
+
+Interpretation:
+  kappa > 0.80  : excellent — definitions interchangeable
+  kappa 0.6-0.8 : substantial — note in limitations
+  kappa 0.4-0.6 : moderate — methods must separate the two
+                  PA constructs (cross-sectional vs longitudinal)
+  kappa < 0.4   : poor — NB2/NB3 PA results may not extend to
+                  longitudinal analysis; re-think PA definition

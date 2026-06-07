@@ -6,3 +6,8 @@ submit_test.sh
 test.py
 const_paths.py
 __pycache__/
+
+# phase_ii data
+phase_II/outputs/*.parquet
+phase_II/outputs/*.pkl
+phase_II/outputs/*.npy

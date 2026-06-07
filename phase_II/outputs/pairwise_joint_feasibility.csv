@@ -1,0 +1,4 @@
+pair,behA,behB,n_pool,n_treated,n_control,events_treated,events_control,rate_treated,rate_control,feasible,nb3_ref
+Smk+PA,smk,PA,1923,506,458,41,28,0.08102766798418973,0.0611353711790393,LOW,arm 3 (NB3): -0.0810
+Smk+Sleep,smk,sleep,1176,303,293,31,16,0.10231023102310231,0.05460750853242321,LOW,arm 5 (NB3): -0.0805
+PA+Sleep,PA,sleep,6342,1291,2014,81,111,0.0627420604182804,0.055114200595829194,YES,arm 6 (NB3): -0.0493
