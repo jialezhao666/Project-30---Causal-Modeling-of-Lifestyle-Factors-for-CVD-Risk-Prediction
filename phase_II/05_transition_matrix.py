@@ -26,6 +26,7 @@ core_cols = ['eid',
             '914-0.0',   '914-2.0',
             '1160-0.0',  '1160-2.0']
 
+
 # 1. longitudinal fields + outcome 
 print("Loading tabular (longitudinal fields)")
 tab = pd.read_csv(file_tab, sep='\t', usecols=core_cols)
@@ -40,7 +41,6 @@ exp_header = pd.read_csv(file_exposure, sep='\t', nrows=0).columns.tolist()
 exp_want = ['eid', 'genetic_sex', 'age_defined_baseline']
 exp_have = [c for c in exp_want if c in exp_header]
 exp_miss = [c for c in exp_want if c not in exp_header]
-print(f"  available: {exp_have}")
 if exp_miss:
     print(f"  missing  : {exp_miss}")
 if len(exp_have) > 1:
@@ -59,7 +59,7 @@ def load_bmi_pa():
         for name, path in found:
             try:
                 d = pd.read_parquet(path, columns=['eid', 'BMI', 'PA_active'])
-                print(f"  loaded {name}: {len(d):,}")
+                print(f"  {name}: {len(d):,}")
                 parts.append(d)
             except Exception as e:
                 print(f"  skip {name}: {e}")
@@ -78,11 +78,10 @@ def load_bmi_pa():
 print("\nLoading BMI + PA_active from Phase I parquets")
 bmi_pa, coverage = load_bmi_pa()
 if bmi_pa is not None:
-    print(f"  coverage: {coverage}  unique eids: {len(bmi_pa):,}")
     print(f"  BMI: mean={bmi_pa['BMI'].mean():.2f}, std={bmi_pa['BMI'].std():.2f}, "
         f"min={bmi_pa['BMI'].min():.2f}, max={bmi_pa['BMI'].max():.2f}  (raw values)")
     df = df.merge(bmi_pa, on='eid', how='left')
-    print(f"  after merge: {df.shape[0]:,} rows × {df.shape[1]} cols")
+    print(f"  after merge: {df.shape[0]:,} rows * {df.shape[1]} cols")
     print(f"  imaging-visit participants with BMI: {df['BMI'].notna().sum():,}")
 else:
     coverage = 'none'
@@ -149,60 +148,133 @@ H = {
                     sleep_healthy(df['1160-2.0'])),}
 
 
-# 1. Full 2×2 transition matrix per behaviour (FULL IMAGING)
+# SUB-ANALYSIS SETUP: exclude participants whose CVD/AF/HF event occurred before their imaging visit 
+
 print("\n" + "=" * 78)
-print("FULL TRANSITION MATRIX  (baseline → imaging visit, full imaging pool)")
+print("SUB-ANALYSIS SETUP: excluding participants with CVD event before imaging")
 print("=" * 78)
 
-rows = []
-for name, (b_arr, i_arr) in H.items():
-    b = pd.Series(b_arr, index=df.index)
-    i = pd.Series(i_arr, index=df.index)
-    both = b.notna() & i.notna() # require both visits observed for this behaviour
-    b2, i2 = b[both], i[both]
-    y2 = df.loc[both, OUTCOME]
-    n = len(b2)
+events_f = os.path.join(BASE_PATH, 'bhf_all_individuals_plus_cvd_events.csv')
+events = pd.read_csv(events_f, sep='\t', index_col=0,
+                    usecols=['eid', 'defined_baseline_date',
+                            'def_CVD_AF_HF_AFTER_days_from_baseline'])
+events = events.reset_index()
+events['defined_baseline_date'] = pd.to_datetime(events['defined_baseline_date'])
+events['def_CVD_AF_HF_AFTER_date'] = (
+    events['defined_baseline_date'] +
+    pd.to_timedelta(events['def_CVD_AF_HF_AFTER_days_from_baseline'], unit='D')
+)
 
-    cells = {
-        'HH': (b2 == 1) & (i2 == 1), # healthy at baseline AND imaging
-        'HU': (b2 == 1) & (i2 == 0), # healthy at baseline, unhealthy at imaging (worsened)
-        'UH': (b2 == 0) & (i2 == 1), # unhealthy at baseline, healthy at imaging (improved)
-        'UU': (b2 == 0) & (i2 == 0), # unhealthy at baseline AND imaging
-        }
-    cell_n = {k: int(m.sum()) for k, m in cells.items()} # count of participants in each cell
-    cell_ev = {k: int(y2[m].sum()) for k, m in cells.items()} # count of CVD events in each cell
-    cell_rate = {k: y2[m].mean() if cell_n[k] else np.nan  for k, m in cells.items()}  # CVD event rate in each cell
+img_dates = pd.read_csv(os.path.join(BASE_PATH, 'latest_q2_only53-2.0.tsv'),
+                        sep='\t').rename(columns={'53-2.0': 'imaging_date'})
+img_dates['imaging_date'] = pd.to_datetime(img_dates['imaging_date'])
 
-    print(f"\n### {name}  (both-visit n = {n:,})")
-    print(f"                         imaging H            imaging U          row sum")
-    print(f"  baseline HEALTHY      {cell_n['HH']:>7,} ({cell_n['HH']/n*100:4.1f}%)   "
-        f"{cell_n['HU']:>7,} ({cell_n['HU']/n*100:4.1f}%)   "
-        f"{cell_n['HH'] + cell_n['HU']:>7,}")
-    print(f"  baseline UNHEALTHY    {cell_n['UH']:>7,} ({cell_n['UH']/n*100:4.1f}%)   "
-        f"{cell_n['UU']:>7,} ({cell_n['UU']/n*100:4.1f}%)   "
-        f"{cell_n['UH'] + cell_n['UU']:>7,}")
-    print(f"  col sum               {cell_n['HH'] + cell_n['UH']:>7,}            "
-        f"{cell_n['HU'] + cell_n['UU']:>7,}            {n:>7,}")
-    print(f"  CVD events / rate per cell:")
-    for k in ['HH', 'HU', 'UH', 'UU']:
-        print(f"    {k}: events={cell_ev[k]:>5,}  "
-            f"rate={cell_rate[k]:.4f}  (n={cell_n[k]:,})")
+events = events.merge(img_dates, on='eid', how='left')
+events['event_before_imaging'] = (
+    events['def_CVD_AF_HF_AFTER_date'].notna() &
+    events['imaging_date'].notna() &
+    (events['def_CVD_AF_HF_AFTER_date'] < events['imaging_date'])
+)
+exclude_eids = set(events.loc[events['event_before_imaging'], 'eid'])
+print(f"  Participants with imaging visit date  : {events['imaging_date'].notna().sum():,}")
+print(f"  Participants with CVD event date      : {events['def_CVD_AF_HF_AFTER_date'].notna().sum():,}")
+print(f"  Participants with event BEFORE imaging: {len(exclude_eids):,}  <- excluded from df_sub")
 
-    for k in ['HH', 'HU', 'UH', 'UU']:
-        rows.append({
-            'intervention' : name,
-            'cell' : k,
-            'baseline': k[0],
-            'imaging' : k[1],
-            'n' : cell_n[k],
-            'pct_of_total' : cell_n[k] / n * 100,
-            'cvd_events' : cell_ev[k],
-            'cvd_rate' : cell_rate[k],})
+df_sub = df[~df['eid'].isin(exclude_eids)].copy()
+print(f"  df (main, full imaging pool)          : {len(df):,}")
+print(f"  df_sub (excl. pre-imaging CVD events) : {len(df_sub):,}  "
+    f"({len(df) - len(df_sub):,} excluded)")
 
-mat = pd.DataFrame(rows)
+# 1. Full 2×2 transition matrix per behaviour
+# Run on both df (main) and df_sub (sub-analysis) for comparison.
+
+def build_transition_matrix(data, H_dict, label):
+    print("\n" + "=" * 78)
+    print(f"TRANSITION MATRIX [{label}]  (baseline -> imaging visit)")
+    print("=" * 78)
+
+    rows = []
+    for name, (b_arr, i_arr) in H_dict.items():
+        b = pd.Series(b_arr, index=data.index)
+        i = pd.Series(i_arr, index=data.index)
+        both = b.notna() & i.notna()
+        b2, i2 = b[both], i[both]
+        y2 = data.loc[both, OUTCOME]
+        n = len(b2)
+
+        cells = {
+            'HH': (b2 == 1) & (i2 == 1),
+            'HU': (b2 == 1) & (i2 == 0),
+            'UH': (b2 == 0) & (i2 == 1),
+            'UU': (b2 == 0) & (i2 == 0),
+            }
+        cell_n = {k: int(m.sum()) for k, m in cells.items()}
+        cell_ev = {k: int(y2[m].sum()) for k, m in cells.items()}
+        cell_rate = {k: y2[m].mean() if cell_n[k] else np.nan for k, m in cells.items()}
+
+        print(f"\n### {name}  (both-visit n = {n:,})")
+        print(f"                         imaging H            imaging U          row sum")
+        print(f"  baseline HEALTHY      {cell_n['HH']:>7,} ({cell_n['HH']/n*100:4.1f}%)   "
+            f"{cell_n['HU']:>7,} ({cell_n['HU']/n*100:4.1f}%)   "
+            f"{cell_n['HH'] + cell_n['HU']:>7,}")
+        print(f"  baseline UNHEALTHY    {cell_n['UH']:>7,} ({cell_n['UH']/n*100:4.1f}%)   "
+            f"{cell_n['UU']:>7,} ({cell_n['UU']/n*100:4.1f}%)   "
+            f"{cell_n['UH'] + cell_n['UU']:>7,}")
+        print(f"  col sum               {cell_n['HH'] + cell_n['UH']:>7,}            "
+            f"{cell_n['HU'] + cell_n['UU']:>7,}            {n:>7,}")
+        print(f"  CVD events / rate per cell:")
+        for k in ['HH', 'HU', 'UH', 'UU']:
+            print(f"    {k}: events={cell_ev[k]:>5,}  "
+                f"rate={cell_rate[k]:.4f}  (n={cell_n[k]:,})")
+
+        for k in ['HH', 'HU', 'UH', 'UU']:
+            rows.append({
+                'cohort': label,
+                'intervention' : name,
+                'cell' : k,
+                'baseline': k[0],
+                'imaging' : k[1],
+                'n' : cell_n[k],
+                'pct_of_total' : cell_n[k] / n * 100,
+                'cvd_events' : cell_ev[k],
+                'cvd_rate' : cell_rate[k],})
+    return pd.DataFrame(rows)
+
+# main analysis (full imaging pool, as before)
+mat_main = build_transition_matrix(df, H, 'main (full imaging pool)')
+
+# sub-analysis (excludes pre-imaging CVD events)
+H_sub = {
+    'Quit smoking'  : (smk_healthy(df_sub['20116-0.0']),
+                    smk_healthy(df_sub['20116-2.0'])),
+    'Increase PA'   : (pa_healthy_approx(df_sub['884-0.0'], df_sub['894-0.0'],
+                                        df_sub['904-0.0'], df_sub['914-0.0']),
+                    pa_healthy_approx(df_sub['884-2.0'], df_sub['894-2.0'],
+                                        df_sub['904-2.0'], df_sub['914-2.0'])),
+    'Adequate sleep': (sleep_healthy(df_sub['1160-0.0']),
+                    sleep_healthy(df_sub['1160-2.0'])),}
+mat_sub = build_transition_matrix(df_sub, H_sub, 'sub (excl. pre-imaging CVD events)')
+
+mat = pd.concat([mat_main, mat_sub], ignore_index=True)
 mat.to_parquet(os.path.join(OUTPUT_DIR, 'transition_matrix.parquet'), index=False)
 mat.to_csv(os.path.join(OUTPUT_DIR, 'transition_matrix.csv'), index=False)
-print(f"\nSaved: outputs/transition_matrix.{{parquet,csv}}  ({len(mat)} rows)")
+print(f"\nSaved: transition_matrix.{{parquet,csv}}  ({len(mat)} rows, both cohorts)")
+
+# comparison: UH cell CVD rate, main vs sub
+print("\n" + "=" * 78)
+print("KEY COMPARISON: UH (improved) cell CVD rate, main vs sub-analysis")
+print("  If sub-analysis rate drops toward UU rate, this supports the")
+print("  hypothesis that reverse-causation was partly driven by reactive")
+print("  behaviour change following an undetected pre-imaging CVD event.")
+print("=" * 78)
+for name in H.keys():
+    uh_main = mat_main[(mat_main['intervention'] == name) & (mat_main['cell'] == 'UH')]
+    uh_sub  = mat_sub[(mat_sub['intervention'] == name) & (mat_sub['cell'] == 'UH')]
+    uu_main = mat_main[(mat_main['intervention'] == name) & (mat_main['cell'] == 'UU')]
+    if len(uh_main) and len(uh_sub):
+        print(f"  {name:<16} UH rate: main={uh_main['cvd_rate'].values[0]:.4f} "
+            f"-> sub={uh_sub['cvd_rate'].values[0]:.4f}   "
+            f"(UU rate for reference: {uu_main['cvd_rate'].values[0]:.4f})")
 
 
 # 2. PA definition concordance: PA_active (22036) vs approximation using 884/894/904/914 (full imaging pool)
@@ -211,13 +283,13 @@ if 'PA_active' in df.columns:
     p_nb1 = pd.Series(df['PA_active'].values, index=df.index).astype(float)
     p_new = pd.Series(
         pa_healthy_approx(df['884-0.0'], df['894-0.0'],
-                        df['904-0.0'], df['914-0.0']),index=df.index)
+                        df['904-0.0'], df['914-0.0']),index=df.index) # 884 * 894 + 904 * 914 approx
     ok = p_nb1.notna() & p_new.notna()
     p_nb1_2 = p_nb1[ok].astype(int)
     p_new_2 = p_new[ok].astype(int)
 
     ct = pd.crosstab(p_nb1_2.rename('PA_active (22036)'), 
-                    p_new_2.rename('884+904 approx'), margins=True) # cross-tabulation with totals
+                    p_new_2.rename('884 * 894 + 904 * 914 approx'), margins=True) # cross-tabulation with totals
     agree = (p_nb1_2 == p_new_2).mean() # overall agreement
     p_nb1_1 = (p_nb1_2 == 1).mean()
     p_new_1 = (p_new_2 == 1).mean()
@@ -233,7 +305,7 @@ if 'PA_active' in df.columns:
     txt.append(f"raw agreement : {agree:.4f}") # 
     txt.append(f"Cohen's kappa : {kappa:.4f}") # cohen's kappa 
     txt.append("")
-    txt.append("Cross-tab (rows = PA_active （22036）; cols = 884+904 approx):")
+    txt.append("Cross-tab (rows = PA_active （22036）; cols = 884 * 894 + 904 * 914 approx):")
     txt.append(ct.to_string())
     txt.append("")
     txt.append("Interpretation:")
@@ -247,7 +319,7 @@ if 'PA_active' in df.columns:
     print("\n" + concord_text)
     with open(os.path.join(OUTPUT_DIR, 'pa_concordance.txt'), 'w') as f:
         f.write(concord_text)
-    print(f"\nSaved: outputs/pa_concordance.txt")
+    print(f"\nSaved: pa_concordance.txt")
 else:
     print("\nSkipped PA concordance: PA_active not available.")
 
@@ -307,9 +379,9 @@ if strat_vars:
     strat_df = pd.DataFrame(strat_rows)
     strat_df.to_csv(
         os.path.join(OUTPUT_DIR, 'transition_matrix_strat.csv'), index=False)
-    print(f"Saved: outputs/transition_matrix_strat.csv ({len(strat_df)} rows)")
+    print(f"Saved: transition_matrix_strat.csv ({len(strat_df)} rows)")
 
-    # quick view: improvement rate UH / (UH+UU) by strata
+    # improvement rate UH / (UH+UU) by strata
     print("\n--- Improvement rate (UH / baseline-unhealthy) by strata ---")
     for name in ['Quit smoking', 'Increase PA', 'Adequate sleep']:
         sub = strat_df[strat_df['intervention'] == name]
@@ -339,7 +411,8 @@ cell_label  = {'HH': 'Always\nhealthy','UH': 'Improved\n(treated)',
             'UU': 'Persistent\nunhealthy (ctrl)','HU': 'Healthy →\nunhealthy'}
 
 for ax, name in zip(axes, ['Quit smoking', 'Increase PA', 'Adequate sleep']):
-    sub = mat[mat['intervention'] == name].set_index('cell')
+    sub = mat[(mat['intervention'] == name) &
+            (mat['cohort'] == 'main (full imaging pool)')].set_index('cell')
     order = ['HH', 'UH', 'UU', 'HU']
     sizes = [int(sub.loc[k, 'n'])          for k in order]
     rates = [float(sub.loc[k, 'cvd_rate']) for k in order]
@@ -369,7 +442,7 @@ fig.suptitle('Baseline → Imaging Visit Transitions  '
 fig.tight_layout()
 fig_path = os.path.join(FIGURES_DIR, 'transition_panels.png')
 fig.savefig(fig_path, dpi=150, bbox_inches='tight')
-print(f"Saved figure: {fig_path}")
+print(f"Saved figure: transition_panels.png")
 
 
 # 5. Joint longitudinal intervention analysis
@@ -384,7 +457,7 @@ print("=" * 78)
 # Update these if you re-run NB3 with different parameters
 _nb3_summary = pd.read_parquet(os.path.join(OUTPUT_DIR, 'joint_cate_summary.parquet'))
 NB3_CATE = dict(zip(_nb3_summary['arm'].astype(int), _nb3_summary['mean_cate']))
-print(f"  Loaded NB3 CATE from joint_cate_summary.parquet: {NB3_CATE}")
+print(f"  Loaded CATE from joint_cate_summary.parquet: {NB3_CATE}")
 #NB3_CATE = {
 #    1: -0.0710,   # no_smk only
 #    2: -0.0280,   # PA only
@@ -442,7 +515,7 @@ print(f"  Baseline all-unhealthy pool (000 at baseline): n={n_pool:,}")
 
 joint_rows = []
 print(f"\n{'Arm':<4} {'Label':<22} {'n':>7} {'CVD events':>10} "
-    f"{'Crude rate':>11} {'Crude RD':>10} {'NB3 CATE':>10}")
+    f"{'Crude rate':>11} {'Crude RD':>10} {'CATE':>10}")
 print("-" * 78)
 
 # reference row first
@@ -478,15 +551,15 @@ for arm in range(1, 8):
 
 joint_df = pd.DataFrame(joint_rows)
 joint_df.to_csv(os.path.join(OUTPUT_DIR, 'joint_longitudinal.csv'), index=False)
-print(f"\nSaved: outputs/joint_longitudinal.csv")
+print(f"\nSaved: joint_longitudinal.csv")
 
 print("\nNote: Crude RD is NOT causal (reverse causality expected for smoking/sleep).")
 print("      MSM/IPTW will adjust for confounding in the next analysis step.")
-print("      NB3 CATE = cross-sectional causal estimate (baseline data only).")
-print("      Direction mismatch between Crude RD and NB3 CATE = evidence of")
+print("      CATE = cross-sectional causal estimate (baseline data only).")
+print("      Direction mismatch between Crude RD and CATE = evidence of")
 print("      time-varying confounding that MSM is designed to correct.")
 
-# --- figure: crude RD vs NB3 CATE side by side ---
+# --- figure: crude RD vs CATE side by side ---
 fig2, ax = plt.subplots(figsize=(11, 5))
 
 x      = np.arange(len(joint_df))
@@ -495,7 +568,7 @@ colors_nb3   = ['#3D5A80'] * len(joint_df)
 colors_crude = ['#E07A5F'] * len(joint_df)
 
 bars1 = ax.bar(x - width/2, joint_df['nb3_cate'],    width,
-            color=colors_nb3,   label='NB3 CATE (cross-sectional, causal)',
+            color=colors_nb3,   label='CATE (cross-sectional, causal)',
             edgecolor='white')
 bars2 = ax.bar(x + width/2, joint_df['crude_rd_vs_ref'], width,
             color=colors_crude, label='Crude RD vs 000→000 (longitudinal, raw)',
@@ -506,7 +579,7 @@ ax.set_xticks(x)
 ax.set_xticklabels([f"arm {r['arm']}\n{r['label']}\n(n={r['n_treated']:,})"
                     for _, r in joint_df.iterrows()], fontsize=8)
 ax.set_ylabel('Risk difference vs all-unhealthy reference')
-ax.set_title('Joint Interventions: NB3 Cross-sectional CATE vs Longitudinal Crude RD\n'
+ax.set_title('Joint Interventions: Cross-sectional CATE vs Longitudinal Crude RD\n'
             '(reference = all-unhealthy at both visits; crude RD not causal)',
             fontsize=11, pad=10)
 ax.legend(fontsize=9, frameon=False)
@@ -517,10 +590,7 @@ ax.set_axisbelow(True)
 fig2.tight_layout()
 fig2_path = os.path.join(FIGURES_DIR, 'joint_longitudinal.png')
 fig2.savefig(fig2_path, dpi=150, bbox_inches='tight')
-print(f"Saved figure: {fig2_path}")
-
-print(f"\n05_transition_matrix.py (v4) done.  BMI/PA coverage: {coverage}")
-
+print(f"Saved figure: joint_longitudinal.png")
 
 # 6. Pairwise joint intervention feasibility
 
@@ -534,9 +604,9 @@ beh_b = {'smk': smk_b, 'PA': pa_b, 'sleep': slp_b}
 beh_i = {'smk': smk_i, 'PA': pa_i, 'sleep': slp_i}
 
 PAIRS = [
-    ('smk',  'PA',    'Smk+PA',    'arm 3 (NB3): -0.0810'),
-    ('smk',  'sleep', 'Smk+Sleep', 'arm 5 (NB3): -0.0805'),
-    ('PA',   'sleep', 'PA+Sleep',  'arm 6 (NB3): -0.0493'),
+    ('smk',  'PA',    'Smk+PA',    'arm 3: -0.0810'),
+    ('smk',  'sleep', 'Smk+Sleep', 'arm 5: -0.0805'),
+    ('PA',   'sleep', 'PA+Sleep',  'arm 6: -0.0493'),
 ]
 
 pair_rows = []
@@ -583,11 +653,11 @@ for bA, bB, label, nb3_ref in PAIRS:
 
 pair_df = pd.DataFrame(pair_rows)
 pair_df.to_csv(os.path.join(OUTPUT_DIR, 'pairwise_joint_feasibility.csv'), index=False)
-print(f"\nSaved: outputs/pairwise_joint_feasibility.csv")
+print(f"\nSaved: pairwise_joint_feasibility.csv")
 print("\nNote: 'treated' = both behaviours improved simultaneously.")
 print("      'control' = both stayed unhealthy. Mixed changers excluded.")
 print("      Feasibility: n>=500 AND events>=50.")
 print("      Feasible pairs → include in MSM alongside single interventions.")
 print("      Infeasible pairs → limitation section.")
 
-print(f"\n05_transition_matrix.py (v5) done.  BMI/PA coverage: {coverage}")
+print(f"\n05_transition_matrix.py done.  BMI/PA coverage: {coverage}")

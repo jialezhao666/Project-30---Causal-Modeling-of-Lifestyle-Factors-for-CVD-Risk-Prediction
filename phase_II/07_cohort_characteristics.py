@@ -107,6 +107,14 @@ full.loc[full['20110.1'].isna() & full['20110.2'].isna(), 'FH_cvd_m'] = np.nan
 full['FH_cvd_sib'] = ((full['20111.1'] == 1) | (full['20111.2'] == 1)).astype(float)
 full.loc[full['20111.1'].isna() & full['20111.2'].isna(), 'FH_cvd_sib'] = np.nan
 
+# Combined FH: any first-degree relative with CVD (father OR mother OR sibling)
+full['FH_cvd_any'] = ((full['FH_cvd_f'] == 1) |
+                    (full['FH_cvd_m'] == 1) |
+                    (full['FH_cvd_sib'] == 1)).astype(float)
+full.loc[full['FH_cvd_f'].isna() &
+        full['FH_cvd_m'].isna() &
+        full['FH_cvd_sib'].isna(), 'FH_cvd_any'] = np.nan
+
 alc = _clip_neg_na(full['20117-0.0'])
 full['alc_curr'] = (alc == 2).astype(float)
 full.loc[alc.isna(), 'alc_curr'] = np.nan
@@ -181,12 +189,10 @@ def cohort_summary(data, label, use_parquet_cols=False):
         stats['Adequate sleep (%)'] = pd.Series(data['sleep_adequate']).mean() * 100
 
     # confounders
-    stats['University degree (%)'] = data['uni_degree'].mean() * 100
-    stats['Mental health visit (%)'] = data['mental_doctor'].mean() * 100
-    stats['FH CVD father (%)'] = data['FH_cvd_f'].mean() * 100
-    stats['FH CVD mother (%)']= data['FH_cvd_m'].mean() * 100
-    stats['FH CVD sibling (%)'] = data['FH_cvd_sib'].mean() * 100
-    stats['Current drinker (%)'] = data['alc_curr'].mean() * 100
+    stats['University degree (%)']        = data['uni_degree'].mean() * 100
+    stats['Mental health visit (%)']      = data['mental_doctor'].mean() * 100
+    stats['FH CVD any relative (%)']     = data['FH_cvd_any'].mean() * 100
+    stats['Current drinker (%)']          = data['alc_curr'].mean() * 100
 
     # outcome
     stats['CVD events (%)'] = data[OUTCOME].mean() * 100
@@ -195,6 +201,14 @@ def cohort_summary(data, label, use_parquet_cols=False):
 
 # Full UKB data
 s_full = cohort_summary(full, f'Full UKB (n={len(full):,})')
+
+# Split B — derive FH_cvd_any from existing parquet columns
+splitB['FH_cvd_any'] = ((splitB['FH_cvd_f'] == 1) |
+                        (splitB['FH_cvd_m'] == 1) |
+                        (splitB['FH_cvd_sib'] == 1)).astype(float)
+splitB.loc[splitB['FH_cvd_f'].isna() &
+        splitB['FH_cvd_m'].isna() &
+        splitB['FH_cvd_sib'].isna(), 'FH_cvd_any'] = np.nan
 
 # Split B — parquet already has all 9 confounders + treatments (raw, pre-imputation)
 # sleep_adequate was derived from sleep_hrs in NB1 before saving
@@ -282,7 +296,7 @@ for idx_name, row in display_df.iterrows():
 
 # save both formats
 results.to_csv(os.path.join(OUTPUT_DIR, 'cohort_characteristics.csv'))
-print(f"\nSaved: outputs/cohort_characteristics.csv  (machine-readable)")
+print(f"\nSaved: cohort_characteristics.csv  (machine-readable)")
 
 # save formatted table as txt
 txt_path = os.path.join(OUTPUT_DIR, 'cohort_characteristics.txt')
@@ -296,7 +310,7 @@ with open(txt_path, 'w') as f:
         for col in display_df.columns:
             line += f'{row[col]:>{col_w}}'
         f.write(line + "\n")
-print(f"Saved: outputs/cohort_characteristics.txt  (formatted)")
+print(f"Saved: cohort_characteristics.txt  (formatted)")
 
 
 print("  - PA active: all three cohorts use field 22036 (self-reported guideline")

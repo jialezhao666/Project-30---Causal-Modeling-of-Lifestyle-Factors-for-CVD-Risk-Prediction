@@ -94,8 +94,6 @@ for k in range(4):
     mask = n_healthy == k
     print(f"  {k} healthy behaviour(s): CVD rate = {Y[mask].mean():.4f} (n={mask.sum():,})")
 
-print("\nPART 1 done. Verify CVD rate falls as healthy behaviours increase.")
-
 
 # 2. multi_arm_causal_forest via rpy2  (test on N_TEST first)
 
@@ -107,7 +105,7 @@ from rpy2.robjects.packages import importr
 numpy2ri.activate()
 pandas2ri.activate()
 
-grf  = importr('grf', lib_loc='~/Rlibs')
+grf = importr('grf', lib_loc='~/Rlibs')
 base = importr('base')
 
 #  subset for testing 
@@ -157,10 +155,18 @@ fit_min = (time.time() - t0) / 60
 print(f"fit time: {fit_min:.1f} min")
 
 #  (a) individual CATEs via predict — usually robust to extreme propensity 
-ro.r('preds <- predict(maf)$predictions')   # n x (n_arms-1) x n_outcomes
-ro.r('cat("dim(preds):", dim(preds), "\\n")')
-cate = np.asarray(ro.r('preds[,,1]'))        # n x 7  (arms 1..7 vs ref 0)
+ro.r('''
+pred_obj  <- predict(maf, estimate.variance = TRUE)
+preds     <- pred_obj$predictions           # n x 7 x 1  point estimates
+var_est   <- pred_obj$variance.estimates    # n x 7 x 1  per-individual variances
+cat("dim(preds):", dim(preds), "\n")
+cat("dim(var_est):", dim(var_est), "\n")
+''')
+cate     = np.asarray(ro.r('preds[,,1]'))    # n x 7  point estimates
+cate_var = np.asarray(ro.r('as.matrix(var_est)'))  # n x 7  variance estimates
+
 print(f"\nCATE shape: {cate.shape}  (rows x 7 arms)")
+print(f"Variance shape: {cate_var.shape}")
 print("Mean CATE per arm (vs T=0 all-unhealthy), expect NEGATIVE:")
 arm_labels = ['1-0','2-0','3-0','4-0','5-0','6-0','7-0']
 for j, lab in enumerate(arm_labels):
@@ -188,16 +194,28 @@ n = cate.shape[0]
 for j in range(7):
     arm = j + 1                      # columns are arms 1..7
     col = cate[:, j]
-    mean = float(np.nanmean(col)) 
+    var_col = cate_var[:, j]
+
+    mean_cate = float(np.nanmean(col))
+    # SE of mean CATE using grf variance estimates (delta method for sample mean)
+    # SE = sqrt( mean(var_i) / n )
+    se_mean   = float(np.sqrt(np.nanmean(var_col) / np.sum(~np.isnan(col))))
+    ci_low    = mean_cate - 1.96 * se_mean
+    ci_high   = mean_cate + 1.96 * se_mean
+
     n_healthy_in_arm = bin(arm).count('1')
     rows.append({
         'arm'      : arm,
         'label'    : ARM_LABELS[arm],
         'n_healthy': n_healthy_in_arm,
-        'mean_cate': mean,
+        'mean_cate': mean_cate,
+        'se'       : se_mean,
+        'ci_low'   : ci_low,
+        'ci_high'  : ci_high,
     })
     print(f"  arm {arm} [{ARM_LABELS[arm]:30s}] "
-        f"mean CATE = {mean:+.4f}")
+        f"mean CATE = {mean_cate:+.4f}  "
+        f"95% CI ({ci_low:+.4f}, {ci_high:+.4f})  SE={se_mean:.5f}")
 
 summary = pd.DataFrame(rows)
 
@@ -239,6 +257,14 @@ fig, ax = plt.subplots(figsize=(11, 5.5))
 x = np.arange(len(plot_df))
 ax.bar(x, plot_df['mean_cate'], color=colors, edgecolor='white', width=0.7)
 
+# error bars: 95% CI from grf variance estimates
+ci_err = np.array([
+    plot_df['mean_cate'] - plot_df['ci_low'],   # lower error
+    plot_df['ci_high']   - plot_df['mean_cate'], # upper error
+])
+ax.errorbar(x, plot_df['mean_cate'], yerr=ci_err,
+            fmt='none', color='black', capsize=4, linewidth=1.2, capthick=1.2)
+
 # value labels below each bar
 for xi, eff in zip(x, plot_df['mean_cate']):
     ax.text(xi, eff - 0.003, f'{eff:+.4f}', ha='center', va='top', fontsize=9)
@@ -264,5 +290,5 @@ ax.legend(handles=legend_elems, loc='lower left', fontsize=9, frameon=False)
 fig.tight_layout()
 fig_path = os.path.join(FIGURES_DIR, 'joint_cate.png')
 fig.savefig(fig_path, dpi=150, bbox_inches='tight')
-print(f"Saved figure: {fig_path}")
+print(f"Saved figure: joint_cate.png")
 

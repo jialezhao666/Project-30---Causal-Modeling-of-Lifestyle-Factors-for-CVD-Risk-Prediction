@@ -42,7 +42,7 @@ df['bmi_band'] = pd.cut(df['BMI'],
 # sex labels
 df['sex_label'] = df['genetic_sex'].map({0: 'Female', 1: 'Male'})
 
-# BLP-style OLS: CATE ~ age + sex + BMI (HC3 robust SE)
+# BLP-style OLS: CATE ~ age + sex + BMI
 import statsmodels.formula.api as smf
 
 # define which outcomes to analyze
@@ -85,20 +85,31 @@ for col, label in all_targets.items():
 
 blp_df = pd.DataFrame(blp_rows)
 blp_df.to_csv(os.path.join(OUTPUT_DIR, 'heterogeneity_blp.csv'), index=False)
-print(f"\nSaved: outputs/heterogeneity_blp.csv")
+print(f"\nSaved: heterogeneity_blp.csv")
 
 # subgroup mean CATEs and 95% CIs
 print("Subgroup mean CATE (mean ± 95% CI)")
 
 def subgroup_stats(data, cate_col, group_col):
+    # Use model-based SE (from EconML effect_inference) when available.
+    se_col = cate_col.replace('ite_', 'se_')
+    has_se = se_col in data.columns
+
     rows = []
     for level, sub in data.groupby(group_col, observed=True):
         vals = sub[cate_col].dropna()
         n = len(vals)
         m = vals.mean()
-        se = vals.std(ddof=1) / np.sqrt(n)
+        if has_se:
+            se_vals = sub.loc[vals.index, se_col]
+            se_mean = float(np.sqrt((se_vals ** 2).mean() / n))
+        else:
+            # joint CATE arms: no individual SE available, use descriptive std/sqrt(n)
+            se_mean = vals.std(ddof=1) / np.sqrt(n)
         rows.append({'group': str(level), 'n': n,
-                    'mean': m, 'ci_low': m - 1.96*se, 'ci_high': m + 1.96*se})
+                    'mean': m,
+                     'ci_low' : m - 1.96 * se_mean,
+                     'ci_high': m + 1.96 * se_mean})
     return pd.DataFrame(rows)
 
 subgroup_rows = []
@@ -124,7 +135,7 @@ for col, label in all_targets.items():
 
 subgroup_df = pd.DataFrame(subgroup_rows)
 subgroup_df.to_csv(os.path.join(OUTPUT_DIR, 'heterogeneity_subgroup.csv'), index=False)
-print(f"\nSaved: outputs/heterogeneity_subgroup.csv")
+print(f"\nSaved: heterogeneity_subgroup.csv")
 
 # figure 1: single intervention ite by subgroup
 ITE_COLS   = ['ite_smk', 'ite_pa', 'ite_sleep']
@@ -175,10 +186,10 @@ fig.suptitle('Heterogeneity of Treatment Effects by Subgroup\n'
 fig.tight_layout()
 violin_path = os.path.join(FIGURES_DIR, 'heterogeneity_violin.png')
 fig.savefig(violin_path, dpi=150, bbox_inches='tight')
-print(f"\nSaved figure: {violin_path}")
+print(f"\nSaved figure: heterogeneity_violin.png")
 plt.close()
 
-# figure 2: mena cate per subgroup with * intervention
+# figure 2: mean cate per subgroup with intervention
 
 # single intervention 
 from matplotlib.transforms import blended_transform_factory
@@ -187,7 +198,7 @@ fig2, axes2 = plt.subplots(1, 3, figsize=(16, 5.5))
 fig2.subplots_adjust(left=0.22, right=0.90, wspace=0.42)
 
 STRAT_ORDER2 = [
-    ('sex',      ['Female', 'Male']),
+    ('sex', ['Female', 'Male']),
     ('age band', ['<55', '55-65', '>=65']),
     ('BMI band', ['<25', '25-30', '>=30']),
 ]
@@ -211,10 +222,20 @@ for ax_idx, (ax, col, lbl, color) in enumerate(
                 continue
             r = row.iloc[0]
             m = r['mean_cate']
+            
+            ci_lo = r['ci_low']
+            ci_hi = r['ci_high']
+            # CI error bar (horizontal)
+            ax.plot([ci_lo, ci_hi], [pos, pos],
+                    color=color, lw=1.5, alpha=0.6, zorder=3)
+            ax.plot([ci_lo, ci_lo], [pos - 0.15, pos + 0.15],
+                    color=color, lw=1.2, alpha=0.7, zorder=3)
+            ax.plot([ci_hi, ci_hi], [pos - 0.15, pos + 0.15],
+                    color=color, lw=1.2, alpha=0.7, zorder=3)
 
             ax.scatter(m, pos, color=color, s=60, zorder=4)
             ax.plot([overall_mean, m], [pos, pos],
-                    color=color, lw=1.0, alpha=0.35, zorder=3)
+                    color=color, lw=0.8, alpha=0.2, zorder=2)
 
             y_pos_list.append(pos)
             ylabels_list.append(
@@ -262,11 +283,88 @@ for ax_idx, (ax, col, lbl, color) in enumerate(
 
 fig2.suptitle(
     'Heterogeneity of Treatment Effects: Mean CATE by Subgroup\n'
-    '(NB2 causal forest; no CI shown — n > 100,000 per subgroup)',
+    '(causal forest; 95% CI from EconML effect_inference, delta method)',
     fontsize=10, y=1.02)
 forest_path = os.path.join(FIGURES_DIR, 'heterogeneity_forest.png')
 fig2.savefig(forest_path, dpi=150, bbox_inches='tight')
-print(f"Saved figure: {forest_path}")
+print(f"Saved figure: heterogeneity_forest.png")
+plt.close()
+
+# Figure 3: Zoom-in forest plot — CI visible at tight x-axis scale
+# Same data as fig2, but x-axis limited to ±5x the CI half-width
+# around each panel's mean, making 95% CIs clearly readable.
+
+fig3, axes3 = plt.subplots(1, 3, figsize=(18, 5.5))
+fig3.subplots_adjust(left=0.20, right=0.78, wspace=0.55)
+
+for ax_idx, (ax, col, lbl, color) in enumerate(
+        zip(axes3, ITE_COLS, ITE_LABELS, ITE_COLORS)):
+
+    sub_df = subgroup_df[subgroup_df['outcome'] == lbl].copy()
+    overall_mean = df[col].mean()
+
+    y_pos_list, ylabels_list, means_list = [], [], []
+    all_ci_lo, all_ci_hi = [], []
+    pos = 0
+
+    for strat_name, levels in STRAT_ORDER2:
+        grp = sub_df[sub_df['strat_var'] == strat_name]
+        for lvl in levels:
+            row = grp[grp['group'] == lvl]
+            if len(row) == 0:
+                continue
+            r     = row.iloc[0]
+            m     = r['mean_cate']
+            ci_lo = r['ci_low']
+            ci_hi = r['ci_high']
+
+            ax.scatter(m, pos, color=color, s=60, zorder=4)
+            ax.plot([overall_mean, m], [pos, pos],
+                    color=color, lw=0.8, alpha=0.2, zorder=2)
+
+            y_pos_list.append(pos)
+            ylabels_list.append(f"{strat_name}: {lvl}  (n={int(r['n']):,})")
+            means_list.append(m)
+            all_ci_lo.append(ci_lo)
+            all_ci_hi.append(ci_hi)
+            pos += 1
+        pos += 0.7
+
+    ax.axvline(overall_mean, color='dimgrey', lw=1.2, ls='-', alpha=0.45,
+            label=f'Overall mean ({overall_mean:+.4f})')
+    ax.axvline(0, color='silver', lw=0.8, ls='--', alpha=0.55)
+
+    ax.set_yticks(y_pos_list)
+    ax.set_yticklabels(
+        ylabels_list if ax_idx == 0 else ['' for _ in ylabels_list],
+        fontsize=8.5)
+    ax.set_ylim(max(y_pos_list) + 0.8, -0.5)
+    ax.invert_yaxis()
+    ax.xaxis.set_major_locator(plt.MaxNLocator(5))
+    ax.tick_params(axis='x', labelsize=8)
+    ax.set_xlabel('Mean CATE (risk difference)', fontsize=9)
+    ax.set_title(lbl, fontsize=10, color=color, pad=8, fontweight='bold')
+    ax.spines[['top', 'right']].set_visible(False)
+    ax.legend(fontsize=7.5, frameon=False, loc='lower right', handlelength=1.2)
+
+    # right margin: CATE + 95% CI stacked on two lines per row
+    trans = blended_transform_factory(ax.transAxes, ax.transData)
+    ax.text(1.02, -0.4, 'CATE  (95% CI)', transform=trans,
+            va='center', ha='left', fontsize=7,
+            color='dimgrey', fontweight='bold')
+    for y, m, ci_lo, ci_hi in zip(y_pos_list, means_list, all_ci_lo, all_ci_hi):
+        label = f'{m:+.4f}\n({ci_lo:+.4f}, {ci_hi:+.4f})'
+        ax.text(1.02, y, label, transform=trans,
+                va='center', ha='left', fontsize=6.8,
+                color=color, family='monospace', linespacing=1.4)
+
+fig3.suptitle(
+    'Heterogeneity of Treatment Effects: Mean CATE by Subgroup\n'
+    '(95% CI from EconML effect_inference, delta method)',
+    fontsize=10, y=1.02)
+forest_zoom_path = os.path.join(FIGURES_DIR, 'heterogeneity_forest_zoom.png')
+fig3.savefig(forest_zoom_path, dpi=150, bbox_inches='tight')
+print(f"Saved figure: heterogeneity_forest_zoom.png")
 plt.close()
 
 print("\n" + "=" * 68)
@@ -275,3 +373,4 @@ print("  outputs/heterogeneity_subgroup.csv")
 print("  outputs/heterogeneity_blp.csv")
 print("  figures/heterogeneity_violin.png")
 print("  figures/heterogeneity_forest.png")
+print("  figures/heterogeneity_forest_zoom.png")
