@@ -171,7 +171,7 @@ events['def_CVD_AF_HF_AFTER_date'] = (
     pd.to_timedelta(events['def_CVD_AF_HF_AFTER_days_from_baseline'], unit='D')
 )
 
-img_dates = pd.read_csv(os.path.join(BASE_PATH, 'latest_q2_only53-2.0.tsv'),
+img_dates = pd.read_csv(os.path.join(BASE_PATH, 'imaging_visit_date.tsv'),
                         sep='\t').rename(columns={'53-2.0': 'imaging_date'})
 img_dates['imaging_date'] = pd.to_datetime(img_dates['imaging_date'])
 
@@ -213,12 +213,12 @@ def build_cohort(label, base_mask, treat_mask, ctrl_mask, restrict_mask=None):
     treated  = eligible & treat_mask
     control  = eligible & ctrl_mask
 
-    nt = int(treated.sum())
-    nc = int(control.sum())
-    et = int(df.loc[treated, OUTCOME].sum())
-    ec = int(df.loc[control, OUTCOME].sum())
-    rt = df.loc[treated, OUTCOME].mean() if nt > 0 else np.nan
-    rc = df.loc[control, OUTCOME].mean() if nc > 0 else np.nan
+    treated_n = int(treated.sum())
+    control_n = int(control.sum())
+    treated_events = int(df.loc[treated, OUTCOME].sum())
+    control_events = int(df.loc[control, OUTCOME].sum())
+    treated_event_rate = df.loc[treated, OUTCOME].mean() if treated_n > 0 else np.nan
+    control_event_rate = df.loc[control, OUTCOME].mean() if control_n > 0 else np.nan
 
     cohort = df.loc[treated | control,
                     ['eid', OUTCOME] + CONFOUNDERS].copy()
@@ -226,134 +226,156 @@ def build_cohort(label, base_mask, treat_mask, ctrl_mask, restrict_mask=None):
     cohort.loc[treated[treated | control].values.astype(bool),
             'treatment'] = 1
 
-    feasible = 'OK' if (nt >= 500 and et >= 50) else 'LOW'
-    print(f"\n  {label}")
-    print(f"    treated  : {nt:>7,}  events={et:>4}  rate={rt:.4f}")
-    print(f"    control  : {nc:>7,}  events={ec:>4}  rate={rc:.4f}")
-    print(f"    total    : {nt+nc:>7,}  feasible={feasible}")
-    return cohort
+    feasible = 'OK' if (treated_n >= 500 and treated_events >= 50) else 'LOW'
+
+    stats = {
+        'label': label,
+        'treated_n': treated_n, 'treated_events': treated_events,
+        'treated_event_rate': treated_event_rate,
+        'control_n': control_n, 'control_events': control_events,
+        'control_event_rate': control_event_rate,
+        'feasible': feasible,
+    }
+    return cohort, stats
 
 
 print("\n" + "=" * 68)
-print("Cohort construction — MAIN analysis (full imaging pool)")
-print("=" * 68)
-
-cohort_smk = build_cohort(
-    'Quit smoking [main]',
-    base_mask = smk_b.notna() & smk_i.notna() & (smk_b == 0),
-    treat_mask = smk_i == 1,
-    ctrl_mask = smk_i == 0,
-)
-
-cohort_pa = build_cohort(
-    'Increase PA [main]',
-    base_mask = pa_b.notna() & pa_i.notna() & (pa_b == 0),
-    treat_mask = pa_i == 1,
-    ctrl_mask = pa_i == 0,
-)
-
-cohort_slp = build_cohort(
-    'Adequate sleep [main]',
-    base_mask = slp_b.notna() & slp_i.notna() & (slp_b == 0),
-    treat_mask = slp_i == 1,
-    ctrl_mask  = slp_i == 0,
-)
-
-cohort_pair = build_cohort(
-    'PA + Sleep (pairwise joint) [main]',
-    base_mask = (pa_b.notna() & pa_i.notna() &
-                slp_b.notna() & slp_i.notna() &
-                (pa_b == 0) & (slp_b == 0)),
-    treat_mask = (pa_i == 1) & (slp_i == 1),
-    ctrl_mask = (pa_i == 0) & (slp_i == 0))
-
-
-print("\n" + "=" * 68)
-print("Cohort construction — SUB-ANALYSIS (excl. pre-imaging CVD events)")
+print("Cohort construction (main = full imaging pool, "
+    "sub = excl. pre-imaging CVD events)")
 print("=" * 68)
 
 not_excluded = ~exclude_mask
 
-cohort_smk_sub = build_cohort(
-    'Quit smoking [sub]',
-    base_mask = smk_b.notna() & smk_i.notna() & (smk_b == 0),
-    treat_mask = smk_i == 1,
-    ctrl_mask = smk_i == 0,
-    restrict_mask = not_excluded,
-)
+INTERVENTIONS = ['smk', 'pa', 'sleep', 'pa_sleep']
+INTERVENTION_LABELS = {
+    'smk': 'Quit smoking', 'pa': 'Increase PA',
+    'sleep': 'Adequate sleep', 'pa_sleep': 'PA + Sleep'}
 
-cohort_pa_sub = build_cohort(
-    'Increase PA [sub]',
-    base_mask = pa_b.notna() & pa_i.notna() & (pa_b == 0),
-    treat_mask = pa_i == 1,
-    ctrl_mask = pa_i == 0,
-    restrict_mask = not_excluded,
-)
+_mask_specs = {
+    'smk': dict(
+        base_mask=smk_b.notna() & smk_i.notna() & (smk_b == 0),
+        treat_mask=smk_i == 1, ctrl_mask=smk_i == 0),
+    'pa': dict(
+        base_mask=pa_b.notna() & pa_i.notna() & (pa_b == 0),
+        treat_mask=pa_i == 1, ctrl_mask=pa_i == 0),
+    'sleep': dict(
+        base_mask=slp_b.notna() & slp_i.notna() & (slp_b == 0),
+        treat_mask=slp_i == 1, ctrl_mask=slp_i == 0),
+    'pa_sleep': dict(
+        base_mask=(pa_b.notna() & pa_i.notna() &
+                    slp_b.notna() & slp_i.notna() &
+                    (pa_b == 0) & (slp_b == 0)),
+        treat_mask=(pa_i == 1) & (slp_i == 1),
+        ctrl_mask=(pa_i == 0) & (slp_i == 0)),
+}
 
-cohort_slp_sub = build_cohort(
-    'Adequate sleep [sub]',
-    base_mask = slp_b.notna() & slp_i.notna() & (slp_b == 0),
-    treat_mask = slp_i == 1,
-    ctrl_mask  = slp_i == 0,
-    restrict_mask = not_excluded,
-)
+cohorts_main, cohorts_sub = {}, {}
+stats_main, stats_sub = {}, {}
 
-cohort_pair_sub = build_cohort(
-    'PA + Sleep (pairwise joint) [sub]',
-    base_mask = (pa_b.notna() & pa_i.notna() &
-                slp_b.notna() & slp_i.notna() &
-                (pa_b == 0) & (slp_b == 0)),
-    treat_mask = (pa_i == 1) & (slp_i == 1),
-    ctrl_mask = (pa_i == 0) & (slp_i == 0),
-    restrict_mask = not_excluded)
+for name, spec in _mask_specs.items():
+    label = INTERVENTION_LABELS[name]
+    cohorts_main[name], stats_main[name] = build_cohort(
+        f'{label} [main]', **spec)
+    cohorts_sub[name], stats_sub[name] = build_cohort(
+        f'{label} [sub]', **spec, restrict_mask=not_excluded)
+
+# --- Reverse-causality contamination check ---------------------------
+# How much of the main analysis's outcome-positive signal comes from
+# participants whose CVD/AF/HF event occurred BEFORE their imaging visit
+# (i.e. their imaging-time behaviour may be a *reaction* to an event that
+# already happened, not a cause of a future one -- "sick quitter/sleeper"
+# bias). This was previously checked in an ad-hoc diagnostic script; it
+# is folded in here permanently since it's central to interpreting why
+# the sub-analysis event counts collapse relative to the main analysis.
+print("\n" + "=" * 68)
+print("Reverse-causality contamination check (main analysis cohorts)")
+print("  % of outcome-positive participants in each MAIN cohort whose "
+    "event occurred\n  before their imaging visit (and were therefore "
+    "removed in the SUB cohort)")
+print("=" * 68)
+contam_rows = []
+for name in INTERVENTIONS:
+    base_mask = _mask_specs[name]['base_mask']
+    treat_mask = _mask_specs[name]['treat_mask']
+    ctrl_mask = _mask_specs[name]['ctrl_mask']
+    w_complete = pd.Series(True, index=df.index)
+    for c in CONFOUNDERS:
+        w_complete = w_complete & df[c].notna()
+    in_cohort = base_mask & w_complete & (treat_mask | ctrl_mask)
+    event_pos_eids = set(df.loc[in_cohort & (df[OUTCOME] == 1), 'eid'])
+    contaminated = event_pos_eids & exclude_eids
+    pct = len(contaminated) / max(len(event_pos_eids), 1) * 100
+    contam_rows.append({
+        'intervention': INTERVENTION_LABELS[name],
+        'main_event_positive_n': len(event_pos_eids),
+        'pre_imaging_event_n': len(contaminated),
+        'pre_imaging_event_pct': pct})
+    print(f"  {INTERVENTION_LABELS[name]:<18} "
+        f"main outcome-positive={len(event_pos_eids):>4}  "
+        f"pre-imaging (removed in sub)={len(contaminated):>4}  "
+        f"({pct:.1f}%)")
+contam_df = pd.DataFrame(contam_rows)
+contam_df.to_csv(os.path.join(OUTPUT_DIR, 'reverse_causality_contamination.csv'),
+                index=False)
+print(f"\nSaved: reverse_causality_contamination.csv")
+print("Interpretation: a high % here means the MAIN analysis's outcome "
+    "signal for that\nintervention is dominated by participants who were "
+    "likely diagnosed BEFORE their\nimaging-visit behaviour was measured "
+    "-- i.e. reverse causality, not a causal effect\nof the behaviour. "
+    "The SUB-ANALYSIS below removes these participants, which is why "
+    "\nits event counts are much lower despite only a small drop in "
+    "total sample size.")
+
+# --- Unified cohort-construction summary table (main vs sub) ---------
+print("\n" + "=" * 68)
+print("COHORT SUMMARY — main vs sub, side by side")
+print("  n        = number of people in that arm")
+print("  events   = number of those people with OUTCOME=1")
+print("  rate     = events / n")
+print("=" * 68)
+hdr = (f"{'Intervention':<16} {'Arm':<9} "
+    f"{'n (main)':>9} {'ev (main)':>10} {'rate (main)':>12} | "
+    f"{'n (sub)':>9} {'ev (sub)':>9} {'rate (sub)':>11}")
+print(hdr)
+print("-" * len(hdr))
+for name in INTERVENTIONS:
+    sm, ss = stats_main[name], stats_sub[name]
+    label = INTERVENTION_LABELS[name]
+    print(f"{label:<16} {'treated':<9} "
+        f"{sm['treated_n']:>9,} {sm['treated_events']:>10,} "
+        f"{sm['treated_event_rate']:>12.4f} | "
+        f"{ss['treated_n']:>9,} {ss['treated_events']:>9,} "
+        f"{ss['treated_event_rate']:>11.4f}")
+    print(f"{'':<16} {'control':<9} "
+        f"{sm['control_n']:>9,} {sm['control_events']:>10,} "
+        f"{sm['control_event_rate']:>12.4f} | "
+        f"{ss['control_n']:>9,} {ss['control_events']:>9,} "
+        f"{ss['control_event_rate']:>11.4f}")
+    feas_flag = '' if ss['feasible'] == 'OK' else '  <- sub LOW feasibility (Peduzzi 1996: need treated events>=50)'
+    print(f"{'':<16} {'feasible':<9} {sm['feasible']:>9} {'':>10} {'':>12} | "
+        f"{ss['feasible']:>9}{feas_flag}")
+    print()
 
 
 # 1F. Save cohorts (both main and sub)
 
-cohorts_main = {
-    'smk': cohort_smk,
-    'pa' : cohort_pa,
-    'sleep' : cohort_slp,
-    'pa_sleep' : cohort_pair}
-
-cohorts_sub = {
-    'smk': cohort_smk_sub,
-    'pa' : cohort_pa_sub,
-    'sleep' : cohort_slp_sub,
-    'pa_sleep' : cohort_pair_sub}
-
-print(f"\nSaving cohorts (main)")
 for name, coh in cohorts_main.items():
-    path = os.path.join(OUTPUT_DIR, f'msm_cohort_{name}.parquet')
-    coh.to_parquet(path, index=False)
-    nt = int((coh['treatment'] == 1).sum())
-    nc = int((coh['treatment'] == 0).sum())
-    print(f"  msm_cohort_{name}.parquet  "
-        f"(n={len(coh):,}, treated={nt:,}, control={nc:,})")
-
-print(f"\nSaving cohorts (sub-analysis)")
+    coh.to_parquet(os.path.join(OUTPUT_DIR, f'msm_cohort_{name}.parquet'),
+                index=False)
 for name, coh in cohorts_sub.items():
-    path = os.path.join(OUTPUT_DIR, f'msm_cohort_{name}_sub.parquet')
-    coh.to_parquet(path, index=False)
-    nt = int((coh['treatment'] == 1).sum())
-    nc = int((coh['treatment'] == 0).sum())
-    print(f"  msm_cohort_{name}_sub.parquet  "
-        f"(n={len(coh):,}, treated={nt:,}, control={nc:,})")
+    coh.to_parquet(os.path.join(OUTPUT_DIR, f'msm_cohort_{name}_sub.parquet'),
+                index=False)
+print(f"Saved 8 cohort parquet files (4 interventions x main/sub) to "
+    f"{OUTPUT_DIR}")
 
 # Steps 2-4 (IPTW weighting, bootstrap CI, E-value) are wrapped into
 # run_pipeline() below and called once for cohorts_main and once for
 # cohorts_sub, so both the main analysis and the sub-analysis excluding
 # pre-imaging CVD events go through the identical pipeline.
 
-print(f"\n{'='*68}")
-print("Expected vs 05_transition_matrix.py (before W filtering):")
-print("  smk    : treated≈2,750  control≈1,945")
-print("  pa     : treated≈13,198 control≈15,282")
-print("  sleep  : treated≈6,751  control≈9,246")
-print("  pa_slp : treated≈1,291  control≈2,014")
-print("Numbers will be slightly lower due to W completeness filtering.")
-print("If loss > 5%, check confounder missingness above.")
-print("Proceed to Step 2 (IPTW weights) once numbers look reasonable.")
+print("(Sanity check: cohort sizes above should be within ~5% of "
+    "05_transition_matrix.py's pre-W-filtering counts; "
+    "if not, check confounder missingness.)")
 
 
 def run_pipeline(cohorts, suffix, run_label):
@@ -544,44 +566,32 @@ def run_pipeline(cohorts, suffix, run_label):
         'pa_sleep' : _nb3_cate.get(6, np.nan),
     }
 
-    print(f"\n  {'Analysis':<22} {'r_treated':>10} {'r_control':>10} "
-        f"{'RD':>8} {'95% CI':>18} {'RR':>6} {'95% CI':>16}  CATE")
-    print("  " + "-" * 105)
+    print(f"\n  Running weighted RD/RR + {N_BOOT}-sample bootstrap CI "
+        f"for 4 interventions...")
 
     for name, wcoh in weighted_cohorts.items():
         label = ANALYSIS_LABELS[name]
-        n_events_t = int(wcoh.loc[wcoh['treatment'] == 1, OUTCOME].sum())
-        n_events_c = int(wcoh.loc[wcoh['treatment'] == 0, OUTCOME].sum())
-        n_t = int((wcoh['treatment'] == 1).sum())
-        feasible = 'OK' if (n_t >= 500 and n_events_t >= 50) else 'LOW'
+        treated_events = int(wcoh.loc[wcoh['treatment'] == 1, OUTCOME].sum())
+        control_events = int(wcoh.loc[wcoh['treatment'] == 0, OUTCOME].sum())
+        treated_n = int((wcoh['treatment'] == 1).sum())
+        control_n = int((wcoh['treatment'] == 0).sum())
+        feasible = 'OK' if (treated_n >= 500 and treated_events >= 50) else 'LOW'
 
-        print(f"\n  Running bootstrap for {label} (n_boot={N_BOOT})...",
-            end=' ', flush=True)
-
+        print(f"    {label}...", end=' ', flush=True)
         rd, rr, r1, r0 = weighted_rd_rr(wcoh)
         rd_ci, rr_ci   = bootstrap_ci(wcoh)
+        print("done")
 
         nb3 = NB3_SINGLE[name]
         direction_ok = (rd < 0) == (nb3 < 0)
-        direction_flag = '' if direction_ok else '  <- DIRECTION MISMATCH'
-
-        print("done")
-        print(f"    r_treated={r1:.4f}  r_control={r0:.4f}")
-        print(f"    RD = {rd:+.4f}  95% CI ({rd_ci[0]:+.4f}, {rd_ci[1]:+.4f})")
-        print(f"    RR = {rr:.4f}   95% CI ({rr_ci[0]:.4f}, {rr_ci[1]:.4f})")
-        print(f"    CATE = {nb3:+.4f}  "
-            f"direction consistent: {direction_ok}{direction_flag}")
-        if feasible == 'LOW':
-            print(f"    NOTE: events_treated={n_events_t} < 50 -> LOW feasibility, "
-                f"interpret with caution (Peduzzi et al. 1996 threshold)")
 
         result_rows.append({
             'analysis'     : label,
             'cohort'       : run_label,
-            'n_treated'    : n_t,
-            'n_control'    : int((wcoh['treatment'] == 0).sum()),
-            'events_treated': n_events_t,
-            'events_control': n_events_c,
+            'treated_n'    : treated_n,
+            'control_n'    : control_n,
+            'treated_events': treated_events,
+            'control_events': control_events,
             'feasible'     : feasible,
             'r_treated'    : r1,
             'r_control'    : r0,
@@ -598,19 +608,17 @@ def run_pipeline(cohorts, suffix, run_label):
     results_df = pd.DataFrame(result_rows)
     results_path = os.path.join(OUTPUT_DIR, f'msm_results{suffix}.csv')
     results_df.to_csv(results_path, index=False)
-    print(f"\nSaved: msm_results{suffix}.csv")
 
-    print(f"\n{'='*68}")
-    print(f"SUMMARY TABLE [{run_label}] — MSM Results vs Cross-sectional CATE")
-    print(f"{'='*68}")
-    print(f"{'Analysis':<22} {'RD (95% CI)':^28} {'CATE':>10}  Feas.  Direction")
-    print("-" * 85)
+    print(f"\n  {'Analysis':<16} {'treated_n':>9} {'treated_ev':>10} "
+        f"{'RD (95% CI)':^26} {'CATE':>9}  {'Feas':>4}  {'Dir':>8}")
+    print("  " + "-" * 95)
     for _, row in results_df.iterrows():
-        ci_str = f"({row['RD_ci_low']:+.4f}, {row['RD_ci_high']:+.4f})"
-        rd_str = f"{row['RD']:+.4f}"
-        flag   = 'OK' if row['direction_consistent'] else 'MISMATCH'
-        print(f"{row['analysis']:<22} {rd_str:>8}  {ci_str:<24} "
-            f"{row['nb3_cate']:>+10.4f}  {row['feasible']:>5}  {flag}")
+        ci_str = f"({row['RD_ci_low']:+.4f},{row['RD_ci_high']:+.4f})"
+        flag   = 'match' if row['direction_consistent'] else 'MISMATCH'
+        print(f"  {row['analysis']:<16} {row['treated_n']:>9,} "
+            f"{row['treated_events']:>10,} {row['RD']:>+8.4f} {ci_str:>17} "
+            f"{row['nb3_cate']:>+9.4f}  {row['feasible']:>4}  {flag:>8}")
+    print(f"  Saved: msm_results{suffix}.csv")
 
     print("\n" + "=" * 68)
     print(f"STEP 4 [{run_label}]: Sensitivity analysis — E-value")
@@ -625,9 +633,9 @@ def run_pipeline(cohorts, suffix, run_label):
             rr_inv = 1 / rr
             return rr_inv + np.sqrt(rr_inv * (rr_inv - 1))
 
-    print(f"{'Analysis':<22} {'RR':>6} {'E-val (point)':>15} "
-        f"{'CI bound RR':>12} {'E-val (CI)':>12}  Note")
-    print("-" * 85)
+    print(f"\n  {'Analysis':<16} {'RR':>7} {'E-val(point)':>13} "
+        f"{'CI-bound RR':>11} {'E-val(CI)':>10}  Note")
+    print("  " + "-" * 80)
 
     evalue_rows = []
     for _, row in results_df.iterrows():
@@ -640,11 +648,11 @@ def run_pipeline(cohorts, suffix, run_label):
         ev_ci = evalue(ci_bound)
 
         direction_ok = row['direction_consistent']
-        note = ("report - direction consistent with NB3" if direction_ok
-                else "caution - reverse causality present")
+        note = ("consistent with causal forest" if direction_ok
+                else "caution: reverse causality")
 
-        print(f"{row['analysis']:<22} {rr:>6.4f} {ev_point:>15.3f} "
-            f"{ci_bound:>12.4f} {ev_ci:>12.3f}  {note}")
+        print(f"  {row['analysis']:<16} {rr:>7.4f} {ev_point:>13.3f} "
+            f"{ci_bound:>11.4f} {ev_ci:>10.3f}  {note}")
 
         evalue_rows.append({
             'analysis'       : row['analysis'],
@@ -659,20 +667,7 @@ def run_pipeline(cohorts, suffix, run_label):
     evalue_df = pd.DataFrame(evalue_rows)
     evalue_path = os.path.join(OUTPUT_DIR, f'msm_evalues{suffix}.csv')
     evalue_df.to_csv(evalue_path, index=False)
-    print(f"\nSaved: msm_evalues{suffix}.csv")
-
-    print(f"\n{'='*68}")
-    print(f"FINAL MSM RESULTS SUMMARY [{run_label}]")
-    print(f"{'='*68}")
-    print(f"\n{'Analysis':<22} {'n_treated':>10} {'events_t':>9} {'RD':>8} "
-        f"{'95% CI':>22} {'NB3 CATE':>10}  {'Feas':>5}  {'Dir':>5}")
-    print("-" * 95)
-    for _, row in results_df.iterrows():
-        ci_str = f"({row['RD_ci_low']:+.4f}, {row['RD_ci_high']:+.4f})"
-        flag   = 'Y' if row['direction_consistent'] else 'N'
-        print(f"{row['analysis']:<22} {row['n_treated']:>10,} {row['events_treated']:>9} "
-            f"{row['RD']:>+8.4f} {ci_str:>22} "
-            f"{row['nb3_cate']:>+10.4f}  {row['feasible']:>5}  {flag:>5}")
+    print(f"  Saved: msm_evalues{suffix}.csv")
 
     return results_df, evalue_df
 
@@ -689,40 +684,40 @@ results_sub, evalues_sub = run_pipeline(
 # ============================================================
 # Combined comparison table: main vs sub, side by side
 # ============================================================
-print("\n" + "=" * 90)
-print("MAIN vs SUB-ANALYSIS COMPARISON")
-print("  If sub-analysis RD moves toward (or matches direction of) NB3 CATE,")
-print("  this supports excluding reactive behaviour change after undetected")
-print("  pre-imaging CVD events as a contributor to the main analysis mismatch.")
-print("=" * 90)
-print(f"{'Analysis':<18} {'RD main':>10} {'RD sub':>10} {'CATE':>10}  "
-    f"{'Dir main':>9} {'Dir sub':>8}  {'Feas sub':>9}")
-print("-" * 90)
-for name in ['smk', 'pa', 'sleep', 'pa_sleep']:
-    rm = results_main[results_main['analysis'] ==
-                    {'smk':'Quit smoking','pa':'Increase PA',
-                    'sleep':'Adequate sleep','pa_sleep':'PA + Sleep'}[name]].iloc[0]
-    rs = results_sub[results_sub['analysis'] ==
-                    {'smk':'Quit smoking','pa':'Increase PA',
-                    'sleep':'Adequate sleep','pa_sleep':'PA + Sleep'}[name]].iloc[0]
-    print(f"{rm['analysis']:<18} {rm['RD']:>+10.4f} {rs['RD']:>+10.4f} "
-        f"{rm['nb3_cate']:>+10.4f}  "
-        f"{'Y' if rm['direction_consistent'] else 'N':>9} "
-        f"{'Y' if rs['direction_consistent'] else 'N':>8}  "
-        f"{rs['feasible']:>9}")
+print("\n" + "=" * 100)
+print("FINAL COMPARISON — MAIN vs SUB-ANALYSIS, all interventions")
+print("  events     = treated-arm OUTCOME=1 count (sub-analysis events are low")
+print("               because pre-imaging-event participants are removed --")
+print("               see 'pre-imaging event %' column and the reverse-")
+print("               causality contamination check earlier in this run)")
+print("  Dir        = does RD's sign match the causal-forest CATE's sign?")
+print("=" * 100)
+print(f"{'Intervention':<16} {'RD main':>9} {'ev':>4} {'Dir':>5}  | "
+    f"{'RD sub':>9} {'ev':>4} {'Dir':>5} {'Feas':>5}  | "
+    f"{'CATE':>9}  {'pre-img ev %':>12}")
+print("-" * 100)
+for name in INTERVENTIONS:
+    label = INTERVENTION_LABELS[name]
+    rm = results_main[results_main['analysis'] == label].iloc[0]
+    rs = results_sub[results_sub['analysis'] == label].iloc[0]
+    contam_pct = contam_df.loc[contam_df['intervention'] == label,
+                                'pre_imaging_event_pct'].iloc[0]
+    print(f"{label:<16} {rm['RD']:>+9.4f} {rm['treated_events']:>4} "
+        f"{'Y' if rm['direction_consistent'] else 'N':>5}  | "
+        f"{rs['RD']:>+9.4f} {rs['treated_events']:>4} "
+        f"{'Y' if rs['direction_consistent'] else 'N':>5} {rs['feasible']:>5}  | "
+        f"{rm['cate']:>+9.4f}  {contam_pct:>11.1f}%")
 
 combined_results = pd.concat([results_main, results_sub], ignore_index=True)
 combined_results.to_csv(os.path.join(OUTPUT_DIR, 'msm_results_combined.csv'), index=False)
-print(f"\nSaved: msm_results_combined.csv  (main + sub, {len(combined_results)} rows)")
 
 combined_evalues = pd.concat([evalues_main, evalues_sub], ignore_index=True)
 combined_evalues.to_csv(os.path.join(OUTPUT_DIR, 'msm_evalues_combined.csv'), index=False)
-print(f"Saved: msm_evalues_combined.csv  (main + sub, {len(combined_evalues)} rows)")
 
-print(f"\n{'='*68}")
-print("Outputs saved:")
-print("  msm_cohort_{name}.parquet / _sub.parquet            (Step 1)")
-print("  msm_weighted_{name}.parquet / _sub.parquet           (Step 2)")
-print("  msm_love_plot.png / msm_love_plot_sub.png            (Step 2)")
-print("  msm_results.csv / msm_results_sub.csv / _combined    (Step 3)")
-print("  msm_evalues.csv / msm_evalues_sub.csv / _combined    (Step 4)")
+
+print("  reverse_causality_contamination.csv               (Step 1)")
+print("  msm_cohort_{name}.parquet / _sub.parquet           (Step 1)")
+print("  msm_weighted_{name}.parquet / _sub.parquet          (Step 2)")
+print("  msm_love_plot.png / msm_love_plot_sub.png           (Step 2)")
+print("  msm_results.csv / msm_results_sub.csv / _combined   (Step 3)")
+print("  msm_evalues.csv / msm_evalues_sub.csv / _combined   (Step 4)")

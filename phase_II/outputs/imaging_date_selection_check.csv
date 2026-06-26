@@ -1,0 +1,12 @@
+variable,included_mean,excluded_mean,smd
+age_defined_baseline,54.680753405125,,
+genetic_sex,0.4731596029277964,,
+BMI,26.536775652846995,,
+uni_degree,0.4557910889610125,,
+FH_cvd_any,0.5787015032795122,,
+mental_doctor,0.314588736946455,,
+alc_curr,0.9525582659509411,,
+smk_curr,0.0653925732331482,,
+PA_active,0.8172843194502913,,
+sleep_adequate,0.7811785208582943,,
+def_CVD_AF_HF_AFTER,0.0524314561577425,,

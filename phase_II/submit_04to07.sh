@@ -25,4 +25,10 @@ echo ""
 echo "===== 07_cohort_characteristics.py ====="
 python 07_cohort_characteristics.py
 echo ""
+echo "===== 08_sensitivity_evalue.py ====="
+python 08_sensitivity_evalue.py
+echo ""
+echo "===== 09_imaging_data_selction_check ====="
+python 09_imaging_data_selction_check.py
+echo ""
 echo "All done."

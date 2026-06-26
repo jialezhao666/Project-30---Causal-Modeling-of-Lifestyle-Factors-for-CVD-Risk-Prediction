@@ -11,3 +11,8 @@ __pycache__/
 phase_II/outputs/*.parquet
 phase_II/outputs/*.pkl
 phase_II/outputs/*.npy
+phase_II/outputs/maf_model.rds
+
+# phase_iii
+phase_III/debug_baseline_nan.py
+phase_III/diagnose_unreliable_rate.py

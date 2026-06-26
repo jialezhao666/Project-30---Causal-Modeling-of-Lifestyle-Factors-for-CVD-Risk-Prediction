@@ -153,6 +153,7 @@ cat("fit done\\n")
 ''')
 fit_min = (time.time() - t0) / 60
 print(f"fit time: {fit_min:.1f} min")
+ro.r('saveRDS(maf, file = "outputs/maf_model.rds")') # save model 
 
 #  (a) individual CATEs via predict — usually robust to extreme propensity 
 ro.r('''
