@@ -1,0 +1,18 @@
+PA concordance (B) — BASELINE construct validity: 22036-0.0 vs proxy (inst-0)
+==============================================================================
+n compared    : 405,713
+raw agreement : 0.7160
+Cohen's kappa : 0.3908
+
+Cross-tab:
+proxy 884/894/904/914 inst-0       0       1     All
+22036-0.0 (official)                                
+0                              69730    3613   73343
+1                             111593  220777  332370
+All                           181323  224390  405713
+
+Interpretation: same time point, different instruments.
+  Baseline PA_active (22036-0.0) used in Phase I/NB3 is self-reported
+  guideline attainment; proxy uses objective minute counts. Moderate
+  agreement confirms partial equivalence but justifies keeping them
+  as separate constructs in the analysis.

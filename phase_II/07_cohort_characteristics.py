@@ -313,8 +313,3 @@ with open(txt_path, 'w') as f:
 print(f"Saved: cohort_characteristics.txt  (formatted)")
 
 
-print("  - PA active: all three cohorts use field 22036 (self-reported guideline")
-print("    attainment) at baseline, consistent with baseline causal forest analysis.")
-print("    The minute-based approximation (884×894≥150 OR 904×914≥75) is used")
-print("    only in the longitudinal MSM analysis where field 22036")
-print("    has no imaging visit equivalent. Cohen's κ = 0.39 between definitions.")

@@ -16,13 +16,14 @@ os.makedirs(FIGURES_DIR, exist_ok=True)
 file_tab      = os.path.join(BASE_PATH, 'ukb_tabular_data_causal_analysis.tsv')
 file_outcome  = os.path.join(BASE_PATH, 'group_1_outcomes_df_without_qc_df.tsv')
 file_exposure = os.path.join(BASE_PATH, 'group_1_clean_filtered_imputed_dataset_df.tsv')
+file_pa22_img = os.path.join(BASE_PATH, 'output_22036_imaging.tsv')  # field 22036-2.0 (imaging visit PA, extracted by Kasia)
 OUTCOME = 'def_CVD_AF_HF_AFTER'
 
 core_cols = ['eid',
             '20116-0.0', '20116-2.0',
-            '884-0.0',   '884-2.0', 
+            '884-0.0',   '884-2.0',   # instance 2 retained for concordance analysis only
             '894-0.0',   '894-2.0',
-            '904-0.0',   '904-2.0', # 22036 has no imaging visit, so we use similar PA definition for imaging visit
+            '904-0.0',   '904-2.0',
             '914-0.0',   '914-2.0',
             '1160-0.0',  '1160-2.0']
 
@@ -34,6 +35,15 @@ print(f"  tabular rows: {len(tab):,}")
 out = pd.read_csv(file_outcome, sep='\t', usecols=['eid', OUTCOME])
 df = tab.merge(out, on='eid', how='inner')
 print(f"  merged rows : {len(df):,}")
+
+# Load field 22036-2.0 
+# This replaces the proxy definition (884×894 + 904×914) for imaging-visit PA.
+# Baseline PA continues to use field 22036-0.0 (via PA_active in Phase I parquets).
+pa22_img = pd.read_csv(file_pa22_img, sep='\t', usecols=['eid', '22036-2.0'])
+df = df.merge(pa22_img, on='eid', how='left')
+n_pa22 = df['22036-2.0'].notna().sum()
+print(f"  22036-2.0 (imaging PA, official): {n_pa22:,} non-null "
+    f"({n_pa22/len(df)*100:.1f}% of merged rows)")
 
 # 2. sex + age from exposure file (full population)
 print("\nLoading sex + age from group_1_clean_filtered_imputed_dataset_df.tsv")
@@ -103,49 +113,54 @@ def sleep_healthy(col):
 
 def pa_healthy_approx(mod_days, mod_mins, vig_days, vig_mins):
     """
-    Approximates UK PA guideline (field 22036) using:
-    moderate >= 150 min/week  (884 days * 894 mins/day)
-    vigorous >= 75  min/week (904 days * 914 mins/day)
-    Edge cases (preserves original Series index throughout):
-    days=0 -> total=0  (not NaN; person confirmed no activity)
-    days>0, mins=NaN ->total=NaN (conservative; can't confirm duration)
-    both days NaN -> NaN
+    Proxy PA indicator from minute-based fields (884×894 + 904×914).
+    Used for PA proxy construction in concordance analyses only.
+    The main transition and longitudinal analyses use PA_active at baseline
+    and field 22036-2.0 at imaging visit.
     """
-    idx = mod_days.index  # preserve original df index
-    md = _clip_neg_na(mod_days)   # Series with original index
+    idx = mod_days.index
+    md = _clip_neg_na(mod_days)
     mm = _clip_neg_na(mod_mins)
     vd = _clip_neg_na(vig_days)
     vm = _clip_neg_na(vig_mins)
 
-    # minutes/week — use index=idx so boolean ops stay aligned
     mod_total = pd.Series(np.where(md == 0, 0.0, md * mm), index=idx)
     vig_total = pd.Series(np.where(vd == 0, 0.0, vd * vm), index=idx)
 
     active = pd.Series(
         ((mod_total >= 150) | (vig_total >= 75)).astype(float), index=idx)
 
-    # if BOTH day-fields are NaN → truly no data → NaN
     both_nan = md.isna() & vd.isna()
     active[both_nan] = np.nan
 
-    # days>0 but mins missing → uncertain; set NaN unless other arm already
-    # pushes active=1
     mod_uncertain = (md > 0) & mm.isna()
     vig_uncertain = (vd > 0) & vm.isna()
     uncertain = mod_uncertain | vig_uncertain
     active[uncertain & (active != 1)] = np.nan
 
-    return active.values   # return plain array (same as smk_healthy / sleep_healthy)
+    return active.values
+
+
+def pa_official_imaging(col_22036_2):
+    """
+    Official imaging-visit PA indicator from field 22036-2.0.
+    1 = meets PA guideline (self-reported), 0 = does not meet, NaN = missing.
+    Definitionally consistent with the baseline indicator (field 22036-0.0
+    via PA_active in Phase I parquets): both use the same self-report
+    guideline-attainment question, making longitudinal comparison valid.
+    """
+    c = col_22036_2.astype(float)
+    result = np.where(c.isna(), np.nan, (c == 1).astype(float))
+    return result
+
+pa_b_off = pd.Series(df['PA_active'], index=df.index).astype(float)
+pa_i_off = pd.Series(pa_official_imaging(df['22036-2.0']), index=df.index)
 
 H = {
-    'Quit smoking'  : (smk_healthy(df['20116-0.0']),
-                    smk_healthy(df['20116-2.0'])),
-    'Increase PA'   : (pa_healthy_approx(df['884-0.0'], df['894-0.0'],
-                                        df['904-0.0'], df['914-0.0']),
-                    pa_healthy_approx(df['884-2.0'], df['894-2.0'],
-                                        df['904-2.0'], df['914-2.0'])),
-    'Adequate sleep': (sleep_healthy(df['1160-0.0']),
-                    sleep_healthy(df['1160-2.0'])),}
+    'Quit smoking': (smk_healthy(df['20116-0.0']),smk_healthy(df['20116-2.0'])),
+    'Increase PA': (pa_b_off,pa_i_off),
+    'Adequate sleep': (sleep_healthy(df['1160-0.0']),sleep_healthy(df['1160-2.0'])),
+}
 
 
 # SUB-ANALYSIS SETUP: exclude participants whose CVD/AF/HF event occurred before their imaging visit 
@@ -165,7 +180,7 @@ events['def_CVD_AF_HF_AFTER_date'] = (
     pd.to_timedelta(events['def_CVD_AF_HF_AFTER_days_from_baseline'], unit='D')
 )
 
-img_dates = pd.read_csv(os.path.join(BASE_PATH, 'latest_q2_only53-2.0.tsv'),
+img_dates = pd.read_csv(os.path.join(BASE_PATH, 'imaging_visit_date.tsv'),
                         sep='\t').rename(columns={'53-2.0': 'imaging_date'})
 img_dates['imaging_date'] = pd.to_datetime(img_dates['imaging_date'])
 
@@ -244,15 +259,15 @@ def build_transition_matrix(data, H_dict, label):
 mat_main = build_transition_matrix(df, H, 'main (full imaging pool)')
 
 # sub-analysis (excludes pre-imaging CVD events)
+pa_b_off_sub = pd.Series(df_sub['PA_active'], index=df_sub.index).astype(float)
+pa_i_off_sub = pd.Series(pa_official_imaging(df_sub['22036-2.0']), index=df_sub.index)
+
 H_sub = {
-    'Quit smoking'  : (smk_healthy(df_sub['20116-0.0']),
-                    smk_healthy(df_sub['20116-2.0'])),
-    'Increase PA'   : (pa_healthy_approx(df_sub['884-0.0'], df_sub['894-0.0'],
-                                        df_sub['904-0.0'], df_sub['914-0.0']),
-                    pa_healthy_approx(df_sub['884-2.0'], df_sub['894-2.0'],
-                                        df_sub['904-2.0'], df_sub['914-2.0'])),
-    'Adequate sleep': (sleep_healthy(df_sub['1160-0.0']),
-                    sleep_healthy(df_sub['1160-2.0'])),}
+    'Quit smoking': (smk_healthy(df_sub['20116-0.0']),smk_healthy(df_sub['20116-2.0'])),
+    'Increase PA': ( pa_b_off_sub,pa_i_off_sub),
+    'Adequate sleep': (sleep_healthy(df_sub['1160-0.0']),sleep_healthy(df_sub['1160-2.0'])),
+}
+
 mat_sub = build_transition_matrix(df_sub, H_sub, 'sub (excl. pre-imaging CVD events)')
 
 mat = pd.concat([mat_main, mat_sub], ignore_index=True)
@@ -277,49 +292,117 @@ for name in H.keys():
             f"(UU rate for reference: {uu_main['cvd_rate'].values[0]:.4f})")
 
 
-# 2. PA definition concordance: PA_active (22036) vs approximation using 884/894/904/914 (full imaging pool)
-#   Uses whichever coverage we got from Phase I parquets.
+# 2. PA definition concordance (three analyses)
+#
+#  (A) LONGITUDINAL — 22036-0.0 (baseline) vs 22036-2.0 (imaging)
+#      Both official fields, same instrument. Reflects TEMPORAL STABILITY
+#      of PA behaviour between visits. This is the primary concordance
+#      reported in Methods since imaging-visit PA now uses 22036-2.0.
+#
+#  (B) BASELINE construct validity — 22036-0.0 vs proxy (884/894/904/914 inst-0)
+#      Same time point, different instruments. Retained for reference only.
+#
+#  (C) IMAGING construct validity — 22036-2.0 vs proxy (884/894/904/914 inst-2)
+#      Same time point, different instruments. Documents gap between official
+#      and proxy at imaging visit; supports decision to use official field.
+
+def _kappa(a, b):
+    """Cohen's kappa for two binary integer Series."""
+    agree = (a == b).mean()
+    p1a, p1b = (a == 1).mean(), (b == 1).mean()
+    pe = p1a * p1b + (1 - p1a) * (1 - p1b)
+    return (agree - pe) / (1 - pe) if pe != 1 else float('nan'), agree
+
 if 'PA_active' in df.columns:
-    p_nb1 = pd.Series(df['PA_active'].values, index=df.index).astype(float)
-    p_new = pd.Series(
-        pa_healthy_approx(df['884-0.0'], df['894-0.0'],
-                        df['904-0.0'], df['914-0.0']),index=df.index) # 884 * 894 + 904 * 914 approx
-    ok = p_nb1.notna() & p_new.notna()
-    p_nb1_2 = p_nb1[ok].astype(int)
-    p_new_2 = p_new[ok].astype(int)
+    p_base_off = pd.Series(df['PA_active'].values, index=df.index).astype(float)
+    p_img_off  = pd.Series(pa_official_imaging(df['22036-2.0']),  index=df.index)
+    p_base_prx = pd.Series(pa_healthy_approx(df['884-0.0'], df['894-0.0'],
+                                              df['904-0.0'], df['914-0.0']),
+                            index=df.index)
+    p_img_prx  = pd.Series(pa_healthy_approx(df['884-2.0'], df['894-2.0'],
+                                              df['904-2.0'], df['914-2.0']),
+                            index=df.index)
 
-    ct = pd.crosstab(p_nb1_2.rename('PA_active (22036)'), 
-                    p_new_2.rename('884 * 894 + 904 * 914 approx'), margins=True) # cross-tabulation with totals
-    agree = (p_nb1_2 == p_new_2).mean() # overall agreement
-    p_nb1_1 = (p_nb1_2 == 1).mean()
-    p_new_1 = (p_new_2 == 1).mean()
-    pe = p_nb1_1 * p_new_1 + (1 - p_nb1_1) * (1 - p_new_1)
-    kappa = (agree - pe) / (1 - pe) if pe != 1 else float('nan')
+    # --- (A) Longitudinal: 22036-0.0 vs 22036-2.0 ---
+    ok_A = p_base_off.notna() & p_img_off.notna()
+    k_A, ag_A = _kappa(p_base_off[ok_A].astype(int), p_img_off[ok_A].astype(int))
+    ct_A = pd.crosstab(p_base_off[ok_A].astype(int).rename('22036-0.0 baseline'),
+                       p_img_off[ok_A].astype(int).rename('22036-2.0 imaging'),
+                       margins=True)
+    txt_A = [
+        "PA concordance (A) — LONGITUDINAL: 22036-0.0 (baseline) vs 22036-2.0 (imaging)",
+        "=" * 78,
+        f"n compared    : {int(ok_A.sum()):,}  (participants with both official fields non-null)",
+        f"raw agreement : {ag_A:.4f}",
+        f"Cohen's kappa : {k_A:.4f}",
+        "",
+        "Cross-tab (rows = baseline 22036-0.0; cols = imaging 22036-2.0):",
+        ct_A.to_string(), "",
+        "Interpretation: kappa reflects TEMPORAL STABILITY of PA behaviour.",
+        "  Low values may indicate genuine behaviour change, not measurement error.",
+        "  Both instruments are definitionally identical (self-reported guideline",
+        "  attainment), so this is the most valid longitudinal comparison available.",
+    ]
+    concord_A = "\n".join(txt_A)
+    print("\n" + concord_A)
+    with open(os.path.join(OUTPUT_DIR, 'pa_concordance_longitudinal.txt'), 'w') as f:
+        f.write(concord_A)
+    print("Saved: pa_concordance_longitudinal.txt")
 
-    txt = []
-    txt.append("PA definition concordance at BASELINE")
-    txt.append("=" * 60)
-    txt.append(f"data basis : {coverage}")
-    txt.append(f"n compared : {int(ok.sum()):,}  "
-            f"(imaging-visit participants with PA_active available)")
-    txt.append(f"raw agreement : {agree:.4f}") # 
-    txt.append(f"Cohen's kappa : {kappa:.4f}") # cohen's kappa 
-    txt.append("")
-    txt.append("Cross-tab (rows = PA_active （22036）; cols = 884 * 894 + 904 * 914 approx):")
-    txt.append(ct.to_string())
-    txt.append("")
-    txt.append("Interpretation:")
-    txt.append("  kappa > 0.80  : excellent — definitions interchangeable")
-    txt.append("  kappa 0.6-0.8 : substantial — note in limitations")
-    txt.append("  kappa 0.4-0.6 : moderate — methods must separate the two")
-    txt.append("                  PA constructs (cross-sectional vs longitudinal)")
-    txt.append("  kappa < 0.4   : poor — NB2/NB3 PA results may not extend to")
-    txt.append("                  longitudinal analysis; re-think PA definition")
-    concord_text = "\n".join(txt)
-    print("\n" + concord_text)
-    with open(os.path.join(OUTPUT_DIR, 'pa_concordance.txt'), 'w') as f:
-        f.write(concord_text)
-    print(f"\nSaved: pa_concordance.txt")
+    # --- (B) Baseline construct validity: 22036-0.0 vs proxy (inst-0) ---
+    ok_B = p_base_off.notna() & p_base_prx.notna()
+    k_B, ag_B = _kappa(p_base_off[ok_B].astype(int), p_base_prx[ok_B].astype(int))
+    ct_B = pd.crosstab(p_base_off[ok_B].astype(int).rename('22036-0.0 (official)'),
+                       p_base_prx[ok_B].astype(int).rename('proxy 884/894/904/914 inst-0'),
+                       margins=True)
+    txt_B = [
+        "PA concordance (B) — BASELINE construct validity: 22036-0.0 vs proxy (inst-0)",
+        "=" * 78,
+        f"n compared    : {int(ok_B.sum()):,}",
+        f"raw agreement : {ag_B:.4f}",
+        f"Cohen's kappa : {k_B:.4f}",
+        "",
+        "Cross-tab:",
+        ct_B.to_string(), "",
+        "Interpretation: same time point, different instruments.",
+        "  Baseline PA_active (22036-0.0) used in Phase I/NB3 is self-reported",
+        "  guideline attainment; proxy uses objective minute counts. Moderate",
+        "  agreement confirms partial equivalence but justifies keeping them",
+        "  as separate constructs in the analysis.",
+    ]
+    concord_B = "\n".join(txt_B)
+    print("\n" + concord_B)
+    with open(os.path.join(OUTPUT_DIR, 'pa_concordance_baseline.txt'), 'w') as f:
+        f.write(concord_B)
+    print("Saved: pa_concordance_baseline.txt")
+
+    # --- (C) Imaging construct validity: 22036-2.0 vs proxy (inst-2) ---
+    ok_C = p_img_off.notna() & p_img_prx.notna()
+    k_C, ag_C = _kappa(p_img_off[ok_C].astype(int), p_img_prx[ok_C].astype(int))
+    ct_C = pd.crosstab(p_img_off[ok_C].astype(int).rename('22036-2.0 (official)'),
+                       p_img_prx[ok_C].astype(int).rename('proxy 884/894/904/914 inst-2'),
+                       margins=True)
+    txt_C = [
+        "PA concordance (C) — IMAGING construct validity: 22036-2.0 vs proxy (inst-2)",
+        "=" * 78,
+        f"n compared    : {int(ok_C.sum()):,}",
+        f"raw agreement : {ag_C:.4f}",
+        f"Cohen's kappa : {k_C:.4f}",
+        "",
+        "Cross-tab:",
+        ct_C.to_string(), "",
+        "Interpretation: same time point (imaging visit), different instruments.",
+        "  Official 22036-2.0 attainment rate is substantially higher than proxy",
+        "  (self-report tends to over-estimate guideline attainment relative to",
+        "  objective minute counts). This supports using 22036-2.0 as primary",
+        "  imaging-visit indicator for definitional consistency with baseline.",
+    ]
+    concord_C = "\n".join(txt_C)
+    print("\n" + concord_C)
+    with open(os.path.join(OUTPUT_DIR, 'pa_concordance_imaging.txt'), 'w') as f:
+        f.write(concord_C)
+    print("Saved: pa_concordance_imaging.txt")
+
 else:
     print("\nSkipped PA concordance: PA_active not available.")
 
@@ -453,8 +536,7 @@ print("  Reference = baseline all-unhealthy → imaging all-unhealthy (000→000
 print("  Arms 1-7  = baseline all-unhealthy → imaging any other combination")
 print("=" * 78)
 
-# NB3 mean CATE results (hardcoded from 03_multiarm_joint.py output)
-# Update these if you re-run NB3 with different parameters
+# NB3 mean CATE results from 03_multiarm_joint.py output.
 _nb3_summary = pd.read_parquet(os.path.join(OUTPUT_DIR, 'joint_cate_summary.parquet'))
 NB3_CATE = dict(zip(_nb3_summary['arm'].astype(int), _nb3_summary['mean_cate']))
 print(f"  Loaded CATE from joint_cate_summary.parquet: {NB3_CATE}")
@@ -478,14 +560,15 @@ ARM_LABELS = {
     7: 'all three',
 }
 
-# build imaging-visit healthy indicators (same functions as above)
+# build imaging-visit healthy indicators
+# Baseline PA: official PA_active from Phase I parquets, derived from field 22036-0.0.
+# Imaging PA: official field 22036-2.0.
+# Minute-based PA proxy fields are retained only for concordance checks.
 smk_b  = pd.Series(smk_healthy(df['20116-0.0']),  index=df.index)
-pa_b = pd.Series(pa_healthy_approx(df['884-0.0'], df['894-0.0'],
-                                    df['904-0.0'], df['914-0.0']), index=df.index)
+pa_b = pd.Series(df['PA_active'], index=df.index).astype(float)
 slp_b  = pd.Series(sleep_healthy(df['1160-0.0']), index=df.index)
 smk_i  = pd.Series(smk_healthy(df['20116-2.0']),  index=df.index)
-pa_i = pd.Series(pa_healthy_approx(df['884-2.0'], df['894-2.0'],
-                                    df['904-2.0'], df['914-2.0']), index=df.index)
+pa_i = pd.Series(pa_official_imaging(df['22036-2.0']), index=df.index)
 slp_i  = pd.Series(sleep_healthy(df['1160-2.0']), index=df.index)
 
 # require all 6 indicators non-missing
@@ -603,10 +686,16 @@ print("=" * 78)
 beh_b = {'smk': smk_b, 'PA': pa_b, 'sleep': slp_b}
 beh_i = {'smk': smk_i, 'PA': pa_i, 'sleep': slp_i}
 
+#PAIRS = [
+#    ('smk',  'PA',    'Smk+PA',    'arm 3: -0.0810'),
+#    ('smk',  'sleep', 'Smk+Sleep', 'arm 5: -0.0805'),
+#    ('PA',   'sleep', 'PA+Sleep',  'arm 6: -0.0493'),
+#]
+
 PAIRS = [
-    ('smk',  'PA',    'Smk+PA',    'arm 3: -0.0810'),
-    ('smk',  'sleep', 'Smk+Sleep', 'arm 5: -0.0805'),
-    ('PA',   'sleep', 'PA+Sleep',  'arm 6: -0.0493'),
+    ('smk', 'PA', 'Smk+PA', 3),
+    ('smk', 'sleep', 'Smk+Sleep', 5),
+    ('PA', 'sleep', 'PA+Sleep', 6),
 ]
 
 pair_rows = []
@@ -614,7 +703,8 @@ print(f"\n{'Pair':<12} {'pool':>7} {'treated':>8} {'control':>8} "
     f"{'events T/C':>11} {'rate T/C':>14} {'feasible':>10}  NB3 ref")
 print("-" * 85)
 
-for bA, bB, label, nb3_ref in PAIRS:
+for bA, bB, label, arm_id in PAIRS:
+    nb3_ref = NB3_CATE.get(arm_id, np.nan)
     bbA = beh_b[bA]; biA = beh_i[bA]
     bbB = beh_b[bB]; biB = beh_i[bB]
 
@@ -632,13 +722,14 @@ for bA, bB, label, nb3_ref in PAIRS:
     rt = df.loc[treated, OUTCOME].mean() if nt > 0 else np.nan
     rc = df.loc[ctrl, OUTCOME].mean() if nc > 0 else np.nan
 
-    feasible = 'YES' if (nt >= 500 and et >= 50) else 'LOW'
+    feasible = 'YES' if (nt >= 500 and nc >= 500 and et >= 50 and ec >= 50) else 'LOW'
     rt_str = f'{rt:.3f}' if not np.isnan(rt) else 'NaN'
     rc_str = f'{rc:.3f}' if not np.isnan(rc) else 'NaN'
 
     print(f"{label:<12} {n_pool:>7,} {nt:>8,} {nc:>8,} "
         f"{et:>5}/{ec:<5} "
-        f"{rt_str}/{rc_str}  {feasible:>10}  {nb3_ref}")
+        f"{rt_str}/{rc_str}  {feasible:>10}  "
+        f"arm {arm_id}: {nb3_ref:+.4f}")
 
     pair_rows.append({
         'pair'          : label,
@@ -648,7 +739,8 @@ for bA, bB, label, nb3_ref in PAIRS:
         'events_treated': et,  'events_control': ec,
         'rate_treated'  : rt,  'rate_control'  : rc,
         'feasible'      : feasible,
-        'nb3_ref'       : nb3_ref,
+        'nb3_arm'       : arm_id,
+        'nb3_cate'      : nb3_ref,
     })
 
 pair_df = pd.DataFrame(pair_rows)
@@ -656,7 +748,7 @@ pair_df.to_csv(os.path.join(OUTPUT_DIR, 'pairwise_joint_feasibility.csv'), index
 print(f"\nSaved: pairwise_joint_feasibility.csv")
 print("\nNote: 'treated' = both behaviours improved simultaneously.")
 print("      'control' = both stayed unhealthy. Mixed changers excluded.")
-print("      Feasibility: n>=500 AND events>=50.")
+print("      Feasibility: treated/control n>=500 and treated/control events>=50.")
 print("      Feasible pairs → include in MSM alongside single interventions.")
 print("      Infeasible pairs → limitation section.")
 

@@ -5,8 +5,12 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+from matplotlib.transforms import blended_transform_factory
+from matplotlib.lines import Line2D
+import statsmodels.formula.api as smf
 import warnings
 warnings.filterwarnings('ignore')
+
 
 sys.path.insert(0, os.path.expanduser('~/my_ukb_thesis'))
 
@@ -30,6 +34,15 @@ else:
     HAS_JOINT = False
     print("  joint_cate_full.parquet not found — heterogeneity skipped")
     
+# Re-orient smoking effect to the healthy-behaviour direction.
+# Original ite_smk = effect of current smoking vs non-current smoking.
+# Therefore, ite_no_smk = effect of no current smoking / quitting smoking.
+df['ite_no_smk'] = -df['ite_smk']
+
+# Standard error is unchanged when multiplying the estimate by -1.
+if 'se_smk' in df.columns:
+    df['se_no_smk'] = df['se_smk']
+
 # create subgroup bins
 # age bands: <55, 55-65, >=65 
 df['age_band'] = pd.cut(df['age_defined_baseline'],
@@ -43,20 +56,19 @@ df['bmi_band'] = pd.cut(df['BMI'],
 df['sex_label'] = df['genetic_sex'].map({0: 'Female', 1: 'Male'})
 
 # BLP-style OLS: CATE ~ age + sex + BMI
-import statsmodels.formula.api as smf
 
 # define which outcomes to analyze
 single_targets = {
-    'ite_smk': 'Quit smoking',
-    'ite_pa': 'Increase PA',
+    'ite_no_smk': 'No current smoking',
+    'ite_pa': 'Physically active',
     'ite_sleep': 'Adequate sleep',
 }
 joint_targets = {}
 if HAS_JOINT:
     joint_targets = {
-        'cate_arm1_vs0': 'no_smk only (arm 1)',
-        'cate_arm2_vs0': 'PA only (arm 2)',
-        'cate_arm4_vs0': 'sleep only (arm 4)',
+        'cate_arm1_vs0': 'No current smoking only (arm 1)',
+        'cate_arm2_vs0': 'Physically active only (arm 2)',
+        'cate_arm4_vs0': 'Adequate sleep only (arm 4)',
         'cate_arm7_vs0': 'all three (arm 7)',
     }
 all_targets = {**single_targets, **joint_targets}
@@ -138,8 +150,8 @@ subgroup_df.to_csv(os.path.join(OUTPUT_DIR, 'heterogeneity_subgroup.csv'), index
 print(f"\nSaved: heterogeneity_subgroup.csv")
 
 # figure 1: single intervention ite by subgroup
-ITE_COLS   = ['ite_smk', 'ite_pa', 'ite_sleep']
-ITE_LABELS = ['Quit smoking', 'Increase PA', 'Adequate sleep']
+ITE_COLS   = ['ite_no_smk', 'ite_pa', 'ite_sleep']
+ITE_LABELS = ['No current smoking', 'Physically active', 'Adequate sleep']
 ITE_COLORS = ['#C44E52', '#4C72B0', '#55A868']
 
 STRAT_VARS = [
@@ -181,7 +193,7 @@ for row_i, (col, lbl, color) in enumerate(zip(ITE_COLS, ITE_LABELS, ITE_COLORS))
         ax.tick_params(axis='y', labelsize=8)
 
 fig.suptitle('Heterogeneity of Treatment Effects by Subgroup\n'
-            '(dot = mean, line = median; positive ite_smk = smoking increases risk)',
+            '(dot = mean, line = median; negative values indicate lower predicted CVD risk under the healthier behaviour state)',
             fontsize=11, y=1.01)
 fig.tight_layout()
 violin_path = os.path.join(FIGURES_DIR, 'heterogeneity_violin.png')
@@ -192,7 +204,6 @@ plt.close()
 # figure 2: mean cate per subgroup with intervention
 
 # single intervention 
-from matplotlib.transforms import blended_transform_factory
 
 fig2, axes2 = plt.subplots(1, 3, figsize=(16, 5.5))
 fig2.subplots_adjust(left=0.22, right=0.90, wspace=0.42)
@@ -282,20 +293,27 @@ for ax_idx, (ax, col, lbl, color) in enumerate(
                 color=color, family='monospace')
 
 fig2.suptitle(
-    'Heterogeneity of Treatment Effects: Mean CATE by Subgroup\n'
-    '(causal forest; 95% CI from EconML effect_inference, delta method)',
+    'Heterogeneity of Treatment Effects: Mean Risk Difference by Subgroup\n'
+    '(negative values indicate lower predicted CVD risk under the healthier behaviour state)',
     fontsize=10, y=1.02)
 forest_path = os.path.join(FIGURES_DIR, 'heterogeneity_forest.png')
 fig2.savefig(forest_path, dpi=150, bbox_inches='tight')
 print(f"Saved figure: heterogeneity_forest.png")
 plt.close()
 
-# Figure 3: Zoom-in forest plot — CI visible at tight x-axis scale
-# Same data as fig2, but x-axis limited to ±5x the CI half-width
-# around each panel's mean, making 95% CIs clearly readable.
+# Figure 3: Zoom-in forest plot
+# Clean version for report
 
-fig3, axes3 = plt.subplots(1, 3, figsize=(18, 5.5))
-fig3.subplots_adjust(left=0.20, right=0.78, wspace=0.55)
+fig3, axes3 = plt.subplots(1, 3, figsize=(15.5, 5.8))
+
+# Leave space on the left for subgroup labels and on the right for numeric CI text
+fig3.subplots_adjust(
+    left=0.22,
+    right=0.86,
+    bottom=0.14,
+    top=0.90,
+    wspace=0.50
+)
 
 for ax_idx, (ax, col, lbl, color) in enumerate(
         zip(axes3, ITE_COLS, ITE_LABELS, ITE_COLORS)):
@@ -303,67 +321,180 @@ for ax_idx, (ax, col, lbl, color) in enumerate(
     sub_df = subgroup_df[subgroup_df['outcome'] == lbl].copy()
     overall_mean = df[col].mean()
 
-    y_pos_list, ylabels_list, means_list = [], [], []
-    all_ci_lo, all_ci_hi = [], []
+    y_pos_list = []
+    ylabels_list = []
+    means_list = []
+    all_ci_lo = []
+    all_ci_hi = []
+
     pos = 0
 
     for strat_name, levels in STRAT_ORDER2:
         grp = sub_df[sub_df['strat_var'] == strat_name]
+
         for lvl in levels:
             row = grp[grp['group'] == lvl]
             if len(row) == 0:
                 continue
-            r     = row.iloc[0]
-            m     = r['mean_cate']
-            ci_lo = r['ci_low']
-            ci_hi = r['ci_high']
 
-            ax.scatter(m, pos, color=color, s=60, zorder=4)
-            ax.plot([overall_mean, m], [pos, pos],
-                    color=color, lw=0.8, alpha=0.2, zorder=2)
+            r = row.iloc[0]
+
+            m = float(r['mean_cate'])
+            ci_lo = float(r['ci_low'])
+            ci_hi = float(r['ci_high'])
+
+            # Draw 95% CI in black.
+            # These CIs may still be visually hidden by the point because
+            # they are very narrow subgroup-mean confidence intervals.
+            ax.errorbar(
+                x=m,
+                y=pos,
+                xerr=np.array([[m - ci_lo], [ci_hi - m]]),
+                fmt='none',
+                ecolor='black',
+                elinewidth=1.2,
+                capsize=3,
+                capthick=1.2,
+                zorder=3
+            )
+
+            # Point estimate
+            ax.scatter(
+                m,
+                pos,
+                color=color,
+                s=55,
+                edgecolor='none',
+                zorder=4
+            )
 
             y_pos_list.append(pos)
             ylabels_list.append(f"{strat_name}: {lvl}  (n={int(r['n']):,})")
             means_list.append(m)
             all_ci_lo.append(ci_lo)
             all_ci_hi.append(ci_hi)
+
             pos += 1
-        pos += 0.7
 
-    ax.axvline(overall_mean, color='dimgrey', lw=1.2, ls='-', alpha=0.45,
-            label=f'Overall mean ({overall_mean:+.4f})')
-    ax.axvline(0, color='silver', lw=0.8, ls='--', alpha=0.55)
+        # Gap between sex / age / BMI groups
+        pos += 0.65
 
+    # Overall mean line for this intervention
+    ax.axvline(
+        overall_mean,
+        color='black',
+        lw=1.0,
+        ls='-',
+        alpha=0.45
+    )
+
+    # No-change reference line
+    ax.axvline(
+        0,
+        color='grey',
+        lw=0.8,
+        ls='--',
+        alpha=0.60
+    )
+
+    # Y-axis labels only on the first panel
     ax.set_yticks(y_pos_list)
     ax.set_yticklabels(
-        ylabels_list if ax_idx == 0 else ['' for _ in ylabels_list],
-        fontsize=8.5)
-    ax.set_ylim(max(y_pos_list) + 0.8, -0.5)
+        ylabels_list if ax_idx == 0 else ['' for _ in y_pos_list],
+        fontsize=9
+    )
+
+    ax.set_ylim(max(y_pos_list) + 0.6, -0.5)
     ax.invert_yaxis()
-    ax.xaxis.set_major_locator(plt.MaxNLocator(5))
+
+    # Compact x-axis range for each panel
+    x_min = min(all_ci_lo + [overall_mean, 0])
+    x_max = max(all_ci_hi + [overall_mean, 0])
+    x_pad = max((x_max - x_min) * 0.15, 0.001)
+    ax.set_xlim(x_min - x_pad, x_max + x_pad)
+
+    ax.xaxis.set_major_locator(plt.MaxNLocator(4))
     ax.tick_params(axis='x', labelsize=8)
-    ax.set_xlabel('Mean CATE (risk difference)', fontsize=9)
-    ax.set_title(lbl, fontsize=10, color=color, pad=8, fontweight='bold')
+    ax.tick_params(axis='y', labelsize=9)
+
+    ax.set_xlabel('Mean risk difference', fontsize=9)
+
+    # Keep panel titles only. Do not add an overall plot title.
+    ax.set_title(
+        lbl,
+        fontsize=11,
+        color=color,
+        pad=8,
+        fontweight='bold'
+    )
+
     ax.spines[['top', 'right']].set_visible(False)
-    ax.legend(fontsize=7.5, frameon=False, loc='lower right', handlelength=1.2)
+    ax.yaxis.grid(True, alpha=0.18, lw=0.5)
+    ax.set_axisbelow(True)
 
-    # right margin: CATE + 95% CI stacked on two lines per row
+    # Right-side numeric column: mean RD and 95% CI in black
     trans = blended_transform_factory(ax.transAxes, ax.transData)
-    ax.text(1.02, -0.4, 'CATE  (95% CI)', transform=trans,
-            va='center', ha='left', fontsize=7,
-            color='dimgrey', fontweight='bold')
-    for y, m, ci_lo, ci_hi in zip(y_pos_list, means_list, all_ci_lo, all_ci_hi):
-        label = f'{m:+.4f}\n({ci_lo:+.4f}, {ci_hi:+.4f})'
-        ax.text(1.02, y, label, transform=trans,
-                va='center', ha='left', fontsize=6.8,
-                color=color, family='monospace', linespacing=1.4)
 
-fig3.suptitle(
-    'Heterogeneity of Treatment Effects: Mean CATE by Subgroup\n'
-    '(95% CI from EconML effect_inference, delta method)',
-    fontsize=10, y=1.02)
+    ax.text(
+        1.03,
+        -0.35,
+        'Mean RD (95% CI)',
+        transform=trans,
+        va='center',
+        ha='left',
+        fontsize=7.5,
+        color='black',
+        fontweight='bold'
+    )
+
+    for y, m, ci_lo, ci_hi in zip(
+            y_pos_list, means_list, all_ci_lo, all_ci_hi):
+
+        label = f'{m:+.4f}\n({ci_lo:+.4f}, {ci_hi:+.4f})'
+
+        ax.text(
+            1.03,
+            y,
+            label,
+            transform=trans,
+            va='center',
+            ha='left',
+            fontsize=7.2,
+            color='black',
+            family='monospace',
+            fontweight='normal',
+            linespacing=1.25
+        )
+
+# Shared legend only, no highlight legend
+legend_handles = [
+    Line2D(
+        [0], [0],
+        color='black',
+        lw=1.0,
+        alpha=0.45,
+        label='Overall mean'
+    ),
+    Line2D(
+        [0], [0],
+        color='grey',
+        lw=0.8,
+        ls='--',
+        label='No change'
+    )
+]
+
+fig3.legend(
+    handles=legend_handles,
+    loc='lower center',
+    bbox_to_anchor=(0.52, 0.02),
+    ncol=2,
+    frameon=False,
+    fontsize=8
+)
+
 forest_zoom_path = os.path.join(FIGURES_DIR, 'heterogeneity_forest_zoom.png')
-fig3.savefig(forest_zoom_path, dpi=150, bbox_inches='tight')
+fig3.savefig(forest_zoom_path, dpi=300, bbox_inches='tight')
 print(f"Saved figure: heterogeneity_forest_zoom.png")
 plt.close()
 

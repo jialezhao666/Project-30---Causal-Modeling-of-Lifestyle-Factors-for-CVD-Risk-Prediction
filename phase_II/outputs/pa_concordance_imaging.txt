@@ -1,0 +1,18 @@
+PA concordance (C) — IMAGING construct validity: 22036-2.0 vs proxy (inst-2)
+==============================================================================
+n compared    : 56,808
+raw agreement : 0.7339
+Cohen's kappa : 0.3404
+
+Cross-tab:
+proxy 884/894/904/914 inst-2      0      1    All
+22036-2.0 (official)                             
+0                              6256      0   6256
+1                             15119  35433  50552
+All                           21375  35433  56808
+
+Interpretation: same time point (imaging visit), different instruments.
+  Official 22036-2.0 attainment rate is substantially higher than proxy
+  (self-report tends to over-estimate guideline attainment relative to
+  objective minute counts). This supports using 22036-2.0 as primary
+  imaging-visit indicator for definitional consistency with baseline.

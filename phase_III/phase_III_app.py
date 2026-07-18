@@ -1,3 +1,9 @@
+"""
+module unload gcc-libs
+module load r/4.4.2-openblas/gnu-10.2.0
+conda activate ukb_env
+streamlit run phase_III_app.py --server.port 8501
+"""
 import streamlit as st
 import numpy as np
 import pandas as pd

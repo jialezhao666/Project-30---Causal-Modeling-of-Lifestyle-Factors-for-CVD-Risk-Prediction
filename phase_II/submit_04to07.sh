@@ -28,7 +28,11 @@ echo ""
 echo "===== 08_sensitivity_evalue.py ====="
 python 08_sensitivity_evalue.py
 echo ""
-echo "===== 09_imaging_data_selction_check ====="
-python 09_imaging_data_selction_check.py
+echo "===== 09_imaging_date_selection_check ====="
+python 09_imaging_date_selection_check.py
+echo ""
+echo ""
+echo "===== 10_individual_heterogeneity_cross_check ====="
+python 10_individual_heterogeneity_cross_check.py
 echo ""
 echo "All done."

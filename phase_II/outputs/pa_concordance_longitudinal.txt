@@ -1,0 +1,17 @@
+PA concordance (A) — LONGITUDINAL: 22036-0.0 (baseline) vs 22036-2.0 (imaging)
+==============================================================================
+n compared    : 56,808  (participants with both official fields non-null)
+raw agreement : 0.8073
+Cohen's kappa : 0.2342
+
+Cross-tab (rows = baseline 22036-0.0; cols = imaging 22036-2.0):
+22036-2.0 imaging      0      1    All
+22036-0.0 baseline                    
+0                   2809   7498  10307
+1                   3447  43054  46501
+All                 6256  50552  56808
+
+Interpretation: kappa reflects TEMPORAL STABILITY of PA behaviour.
+  Low values may indicate genuine behaviour change, not measurement error.
+  Both instruments are definitionally identical (self-reported guideline
+  attainment), so this is the most valid longitudinal comparison available.
