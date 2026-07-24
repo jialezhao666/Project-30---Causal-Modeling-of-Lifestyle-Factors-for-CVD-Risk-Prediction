@@ -1,7 +1,7 @@
 analysis,cohort,analysis_role,feasible,RR,RR_ci_low,RR_ci_high,evalue_point,ci_bound_used,evalue_ci,note
-Smoking cessation,FULL-COHORT DIAGNOSTIC,single-behaviour contrast,OK,1.1382049520881925,0.9128152942703041,1.4369241801796837,1.53482260281732,1.0,1.0,confidence interval includes the null
+Smoking cessation,FULL-COHORT DIAGNOSTIC,single-behaviour contrast,OK,1.1382049520881925,0.912815294270304,1.4369241801796837,1.53482260281732,1.0,1.0,confidence interval includes the null
 Becoming physically active,FULL-COHORT DIAGNOSTIC,single-behaviour contrast,OK,0.8614096123784694,0.7369219195330979,1.0283203804493546,1.5930601187217501,1.0,1.0,confidence interval includes the null
-Achieving adequate sleep,FULL-COHORT DIAGNOSTIC,single-behaviour contrast,OK,1.2260814970559153,1.0835140494702726,1.4066983182504156,1.7525739854799753,1.0835140494702726,1.3843273569039627,confidence interval excludes the null
-Smoking cessation + adequate sleep,FULL-COHORT DIAGNOSTIC,exploratory combined contrast,LOW,1.792592860959184,1.0336076340160385,3.3431525207087707,,,,not reported: insufficient event support
-Physical activity + adequate sleep,FULL-COHORT DIAGNOSTIC,exploratory combined contrast,LOW,1.3600004992150183,0.9004642949465751,2.2795741375988485,,,,not reported: insufficient event support
-Smoking cessation + physical activity,FULL-COHORT DIAGNOSTIC,exploratory combined contrast,LOW,1.1209476784888945,0.603820383552056,3.294058808682116,,,,not reported: insufficient event support
+Achieving adequate sleep,FULL-COHORT DIAGNOSTIC,single-behaviour contrast,OK,1.2260814970559153,1.0835140494702726,1.4066983182504158,1.7525739854799753,1.0835140494702726,1.3843273569039627,confidence interval excludes the null
+Smoking cessation + adequate sleep,FULL-COHORT DIAGNOSTIC,exploratory combined contrast,LOW,1.7925928609591837,1.0336076340160387,3.3431525207087716,,,,not reported: insufficient event support
+Physical activity + adequate sleep,FULL-COHORT DIAGNOSTIC,exploratory combined contrast,LOW,1.3600004992150185,0.900464294946575,2.279574137598848,,,,not reported: insufficient event support
+Smoking cessation + physical activity,FULL-COHORT DIAGNOSTIC,exploratory combined contrast,LOW,1.1209476784888945,0.603820383552056,3.2940588086821165,,,,not reported: insufficient event support

@@ -8,8 +8,7 @@ OUTPUT_DIR = os.path.join(PHASE2_DIR, 'outputs')
 
 CONFOUNDERS = [
     'age_defined_baseline', 'genetic_sex', 'BMI', 'uni_degree',
-    'FH_cvd_f', 'FH_cvd_m', 'FH_cvd_sib', 'mental_doctor', 'alc_curr',
-]
+    'FH_cvd_f', 'FH_cvd_m', 'FH_cvd_sib', 'mental_doctor', 'alc_curr']
 TREATMENTS = ['smk_curr', 'PA_active', 'sleep_adequate']
 OUTCOME = 'def_CVD_AF_HF_AFTER'
 
@@ -20,25 +19,27 @@ ARM_LABELS = {
     4: 'sleep only',
     5: 'no_smk + sleep',
     6: 'PA + sleep',
-    7: 'all three (no_smk+PA+sleep)',
-}
+    7: 'all three (no_smk+PA+sleep)'}
 
 
-# ============================================================
 # Step 1 — recover p0 (observed CVD rate in the all-unhealthy
-# reference arm, T=0) directly from Split B — same logic as in
-# 03_multiarm_joint.py's "CVD rate per arm" sanity check.
-# ============================================================
+# reference arm, T=0) directly from the 70% Phase II analysis set,
+# using the same logic as in 03_multiarm_joint.py's CVD rate sanity check.
 
 print("=" * 68)
 print("STEP 1: Recovering baseline event rate p0 (arm 0, all-unhealthy)")
 print("=" * 68)
 
 df_B = pd.read_parquet(os.path.join(OUTPUT_DIR, 'split_B_phase2.parquet'))
+EXPECTED_N = 321188
+print(f"  Phase II analysis set n = {len(df_B):,}")
+assert len(df_B) == EXPECTED_N, (
+    f"Expected 70% Phase II analysis set with {EXPECTED_N:,} rows, "
+    f"got {len(df_B):,}. Re-run 01_setup.ipynb.")
 
 t_imputer = joblib.load(os.path.join(OUTPUT_DIR, 'treatment_imputer.pkl'))
 T_df = pd.DataFrame(t_imputer.transform(df_B[TREATMENTS]),
-                     columns=TREATMENTS, index=df_B.index)
+                    columns=TREATMENTS, index=df_B.index)
 for c in TREATMENTS:
     T_df[c] = np.clip(np.round(T_df[c]), 0, 1)
 
@@ -58,9 +59,8 @@ if n_arm0 < 100:
     print("  WARNING: arm 0 sample size is small — p0 estimate may be unstable.")
 
 
-# ============================================================
 # Step 2 — load NB3 per-arm CATE summary (risk differences)
-# ============================================================
+
 
 print("\n" + "=" * 68)
 print("STEP 2: Loading per-arm CATE summary")
@@ -68,19 +68,17 @@ print("=" * 68)
 
 summary = pd.read_parquet(os.path.join(OUTPUT_DIR, 'joint_cate_summary.parquet'))
 print(summary[['arm', 'label', 'mean_cate', 'ci_low', 'ci_high']])
+if 'n' in summary.columns:
+    n_unique = summary['n'].dropna().unique()
+    print(f"  joint_cate_summary.parquet n values: {n_unique}")
+    assert 321188 in n_unique, (
+        "Expected joint_cate_summary.parquet from the 70% Phase II analysis set. "
+        "Re-run 03_multiarm_joint.")
 
 
-# ============================================================
 # Step 3 — convert risk difference (CATE) to approximate risk
 # ratio, then compute E-value (VanderWeele & Ding 2017)
-#
 #   RR ≈ (p0 + RD) / p0
-#
-# This is the standard approximation used when only a risk
-# difference and the reference-arm baseline risk are available
-# (see e.g. VanderWeele 2020, "Optimal approximate conversions
-# of odds ratios and hazard ratios to risk ratios").
-# ============================================================
 
 print("\n" + "=" * 68)
 print("STEP 3: Converting RD -> approximate RR, then E-value")
@@ -130,8 +128,7 @@ for _, r in summary.iterrows():
         'rr_point': rr_point,
         'rr_ci_bound_near_null': rr_ci_bound,
         'evalue_point': ev_point,
-        'evalue_ci_bound': ev_ci,
-    })
+        'evalue_ci_bound': ev_ci})
 
     print(f"\n  Arm {arm} [{ARM_LABELS[arm]}]")
     print(f"    RD (point)        = {rd:+.4f}  ->  RR ≈ {rr_point:.4f}  ->  E-value = {ev_point:.3f}")
@@ -143,17 +140,3 @@ evalue_df.to_csv(os.path.join(OUTPUT_DIR, 'nb3_evalues.csv'), index=False)
 print("\n" + "=" * 68)
 print("Saved: nb3_evalues.csv")
 print("=" * 68)
-
-print("""
-Interpretation reminder:
-- E-value (point) = minimum risk-ratio strength an unmeasured confounder
-  would need with BOTH treatment and outcome to fully explain away the
-  estimated effect for that arm.
-- E-value (CI bound) = minimum strength needed to shift the CI bound
-  closest to the null all the way to the null itself.
-- Larger E-value = more robust to unmeasured confounding.
-- This RD -> RR conversion is approximate (depends on the chosen
-  reference arm's baseline risk, p0); report this as a limitation of
-  the sensitivity analysis, consistent with the approximate nature of
-  E-values generally.
-""")

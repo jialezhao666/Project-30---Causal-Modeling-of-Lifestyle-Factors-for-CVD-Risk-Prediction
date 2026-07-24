@@ -40,14 +40,12 @@ def calibration_intercept_slope(y_true, pred_prob):
     intercept_model = sm.GLM(
         y, np.ones((len(y), 1)),
         family=sm.families.Binomial(),
-        offset=lp
-    ).fit()
+        offset=lp).fit()
     intercept_ci = np.asarray(intercept_model.conf_int())[0]
 
     slope_model = sm.GLM(
         y, sm.add_constant(lp),
-        family=sm.families.Binomial()
-    ).fit()
+        family=sm.families.Binomial()).fit()
     slope_ci = np.asarray(slope_model.conf_int())[1]
 
     return {
@@ -56,16 +54,14 @@ def calibration_intercept_slope(y_true, pred_prob):
         "calibration_intercept_ci_high": float(intercept_ci[1]),
         "calibration_slope": float(slope_model.params[1]),
         "calibration_slope_ci_low": float(slope_ci[0]),
-        "calibration_slope_ci_high": float(slope_ci[1]),
-    }
+        "calibration_slope_ci_high": float(slope_ci[1])}
 
 def main():
     cohort = pd.read_csv(INPUT_PATH)
 
     cohort_model = cohort.dropna(subset=[
         "incident_cvd", "smk_curr", "PA_active", "sleep_disorder",
-        "r13agey_b", "female", "r13bmi", "uni_degree", "r13cesd"
-    ]).copy()
+        "r13agey_b", "female", "r13bmi", "uni_degree", "r13cesd"]).copy()
     print(f"Sample size for adjusted regression: {len(cohort_model)}")
 
     formula = (
@@ -86,8 +82,7 @@ def main():
         "ci_low": np.exp(conf[0].values),
         "ci_high": np.exp(conf[1].values),
         "p_value": pvals.values,
-        "n": len(cohort_model),
-    })
+        "n": len(cohort_model)})
     print(or_table)
 
     or_path = os.path.join(OUTPUT_DIR, "hrs_logistic_or_table.csv")
@@ -121,8 +116,7 @@ def main():
         "brier_boot_n": brier_boot_n,
         "mean_predicted": float(np.mean(pred_prob)),
         "observed_rate": float(np.mean(y_true)),
-        **cal
-    }])
+        **cal}])
 
     perf_path = os.path.join(OUTPUT_DIR, "hrs_refit_logistic_performance.csv")
     perf.to_csv(perf_path, index=False)

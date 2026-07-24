@@ -16,7 +16,7 @@ os.makedirs(FIGURES_DIR, exist_ok=True)
 file_tab      = os.path.join(BASE_PATH, 'ukb_tabular_data_causal_analysis.tsv')
 file_outcome  = os.path.join(BASE_PATH, 'group_1_outcomes_df_without_qc_df.tsv')
 file_exposure = os.path.join(BASE_PATH, 'group_1_clean_filtered_imputed_dataset_df.tsv')
-file_pa22_img = os.path.join(BASE_PATH, 'output_22036_imaging.tsv')  # field 22036-2.0 (imaging visit PA, extracted by Kasia)
+file_pa22_img = os.path.join(BASE_PATH, 'output_22036_imaging.tsv')  # field 22036-2.0 (imaging visit PA)
 OUTCOME = 'def_CVD_AF_HF_AFTER'
 
 core_cols = ['eid',
@@ -111,6 +111,7 @@ def sleep_healthy(col):
     c = _clip_neg_na(col)
     return np.where(c.isna(), np.nan, (c >= 7).astype(float)) # 7 or more hours per night is healthy
 
+# pa proxy indicator from minute-based fields (884×894 + 904×914), candidate
 def pa_healthy_approx(mod_days, mod_mins, vig_days, vig_mins):
     """
     Proxy PA indicator from minute-based fields (884×894 + 904×914).
@@ -159,12 +160,10 @@ pa_i_off = pd.Series(pa_official_imaging(df['22036-2.0']), index=df.index)
 H = {
     'Quit smoking': (smk_healthy(df['20116-0.0']),smk_healthy(df['20116-2.0'])),
     'Increase PA': (pa_b_off,pa_i_off),
-    'Adequate sleep': (sleep_healthy(df['1160-0.0']),sleep_healthy(df['1160-2.0'])),
-}
+    'Adequate sleep': (sleep_healthy(df['1160-0.0']),sleep_healthy(df['1160-2.0']))}
 
 
 # SUB-ANALYSIS SETUP: exclude participants whose CVD/AF/HF event occurred before their imaging visit 
-
 print("\n" + "=" * 78)
 print("SUB-ANALYSIS SETUP: excluding participants with CVD event before imaging")
 print("=" * 78)
@@ -177,8 +176,7 @@ events = events.reset_index()
 events['defined_baseline_date'] = pd.to_datetime(events['defined_baseline_date'])
 events['def_CVD_AF_HF_AFTER_date'] = (
     events['defined_baseline_date'] +
-    pd.to_timedelta(events['def_CVD_AF_HF_AFTER_days_from_baseline'], unit='D')
-)
+    pd.to_timedelta(events['def_CVD_AF_HF_AFTER_days_from_baseline'], unit='D'))
 
 img_dates = pd.read_csv(os.path.join(BASE_PATH, 'imaging_visit_date.tsv'),
                         sep='\t').rename(columns={'53-2.0': 'imaging_date'})
@@ -188,8 +186,7 @@ events = events.merge(img_dates, on='eid', how='left')
 events['event_before_imaging'] = (
     events['def_CVD_AF_HF_AFTER_date'].notna() &
     events['imaging_date'].notna() &
-    (events['def_CVD_AF_HF_AFTER_date'] < events['imaging_date'])
-)
+    (events['def_CVD_AF_HF_AFTER_date'] < events['imaging_date']))
 exclude_eids = set(events.loc[events['event_before_imaging'], 'eid'])
 print(f"  Participants with imaging visit date  : {events['imaging_date'].notna().sum():,}")
 print(f"  Participants with CVD event date      : {events['def_CVD_AF_HF_AFTER_date'].notna().sum():,}")
@@ -265,8 +262,7 @@ pa_i_off_sub = pd.Series(pa_official_imaging(df_sub['22036-2.0']), index=df_sub.
 H_sub = {
     'Quit smoking': (smk_healthy(df_sub['20116-0.0']),smk_healthy(df_sub['20116-2.0'])),
     'Increase PA': ( pa_b_off_sub,pa_i_off_sub),
-    'Adequate sleep': (sleep_healthy(df_sub['1160-0.0']),sleep_healthy(df_sub['1160-2.0'])),
-}
+    'Adequate sleep': (sleep_healthy(df_sub['1160-0.0']),sleep_healthy(df_sub['1160-2.0']))}
 
 mat_sub = build_transition_matrix(df_sub, H_sub, 'sub (excl. pre-imaging CVD events)')
 
@@ -341,8 +337,7 @@ if 'PA_active' in df.columns:
         "Interpretation: kappa reflects TEMPORAL STABILITY of PA behaviour.",
         "  Low values may indicate genuine behaviour change, not measurement error.",
         "  Both instruments are definitionally identical (self-reported guideline",
-        "  attainment), so this is the most valid longitudinal comparison available.",
-    ]
+        "  attainment), so this is the most valid longitudinal comparison available."]
     concord_A = "\n".join(txt_A)
     print("\n" + concord_A)
     with open(os.path.join(OUTPUT_DIR, 'pa_concordance_longitudinal.txt'), 'w') as f:
@@ -395,8 +390,7 @@ if 'PA_active' in df.columns:
         "  Official 22036-2.0 attainment rate is substantially higher than proxy",
         "  (self-report tends to over-estimate guideline attainment relative to",
         "  objective minute counts). This supports using 22036-2.0 as primary",
-        "  imaging-visit indicator for definitional consistency with baseline.",
-    ]
+        "  imaging-visit indicator for definitional consistency with baseline."]
     concord_C = "\n".join(txt_C)
     print("\n" + concord_C)
     with open(os.path.join(OUTPUT_DIR, 'pa_concordance_imaging.txt'), 'w') as f:
@@ -415,13 +409,13 @@ has_sex_age = all(c in df.columns for c in ['genetic_sex', 'age_defined_baseline
 has_bmi = 'BMI' in df.columns
 
 if has_sex_age:
-    df['_sex'] = df['genetic_sex'].map({0: 'F', 1: 'M'}).fillna('NA')
+    df['_sex'] = df['genetic_sex'].map({0: 'Female', 1: 'Male'}).fillna('NA')
     df['_age_band'] = pd.cut(df['age_defined_baseline'],
-                            bins=[0, 55, 65, 200],
+                            bins=[-np.inf, 55, 65, np.inf], right=False,
                             labels=['<55', '55-65', '>=65'])
 if has_bmi:
     df['_bmi_band'] = pd.cut(df['BMI'],
-                            bins=[0, 25, 30, 200],
+                            bins=[-np.inf, 25, 30, np.inf], right=False,
                             labels=['<25', '25-30', '>=30'])
 
 strat_vars = []
@@ -538,6 +532,15 @@ print("=" * 78)
 
 # NB3 mean CATE results from 03_multiarm_joint.py output.
 _nb3_summary = pd.read_parquet(os.path.join(OUTPUT_DIR, 'joint_cate_summary.parquet'))
+
+if 'n' in _nb3_summary.columns:
+    n_unique = _nb3_summary['n'].dropna().unique()
+    print(f"  joint_cate_summary.parquet n values: {n_unique}")
+    assert 321188 in n_unique, (
+        "Expected joint_cate_summary.parquet from the 70% Phase II analysis set. "
+        "Re-run 03_multiarm_joint."
+    )
+
 NB3_CATE = dict(zip(_nb3_summary['arm'].astype(int), _nb3_summary['mean_cate']))
 print(f"  Loaded CATE from joint_cate_summary.parquet: {NB3_CATE}")
 #NB3_CATE = {
@@ -629,8 +632,7 @@ for arm in range(1, 8):
         'crude_rd_vs_ref'  : crude_rd,
         'nb3_cate'         : nb3_cate,
         'n_ref'            : n_ref,
-        'rate_ref'         : rate_ref,
-    })
+        'rate_ref'         : rate_ref})
 
 joint_df = pd.DataFrame(joint_rows)
 joint_df.to_csv(os.path.join(OUTPUT_DIR, 'joint_longitudinal.csv'), index=False)
@@ -689,14 +691,12 @@ beh_i = {'smk': smk_i, 'PA': pa_i, 'sleep': slp_i}
 #PAIRS = [
 #    ('smk',  'PA',    'Smk+PA',    'arm 3: -0.0810'),
 #    ('smk',  'sleep', 'Smk+Sleep', 'arm 5: -0.0805'),
-#    ('PA',   'sleep', 'PA+Sleep',  'arm 6: -0.0493'),
-#]
+#    ('PA',   'sleep', 'PA+Sleep',  'arm 6: -0.0493')]
 
 PAIRS = [
     ('smk', 'PA', 'Smk+PA', 3),
     ('smk', 'sleep', 'Smk+Sleep', 5),
-    ('PA', 'sleep', 'PA+Sleep', 6),
-]
+    ('PA', 'sleep', 'PA+Sleep', 6)]
 
 pair_rows = []
 print(f"\n{'Pair':<12} {'pool':>7} {'treated':>8} {'control':>8} "
@@ -740,8 +740,7 @@ for bA, bB, label, arm_id in PAIRS:
         'rate_treated'  : rt,  'rate_control'  : rc,
         'feasible'      : feasible,
         'nb3_arm'       : arm_id,
-        'nb3_cate'      : nb3_ref,
-    })
+        'nb3_cate'      : nb3_ref})
 
 pair_df = pd.DataFrame(pair_rows)
 pair_df.to_csv(os.path.join(OUTPUT_DIR, 'pairwise_joint_feasibility.csv'), index=False)

@@ -59,7 +59,7 @@ def run_causal_forest(cohort_model, treatment_col, label):
         "cate_min": float(np.min(cate)),
         "cate_max": float(np.max(cate)),
         "pct_positive": float(np.mean(cate > 0) * 100),
-        "pct_negative": float(np.mean(cate < 0) * 100),}
+        "pct_negative": float(np.mean(cate < 0) * 100)}
 
     print(f"\n=== {label} ===")
     print(f"ATE: {ate:.4f}  (95% CI: {ci_lower:.4f} to {ci_upper:.4f})")
@@ -75,15 +75,13 @@ def main():
     cohort = pd.read_csv(INPUT_PATH)
     cohort_model = cohort.dropna(subset=[
         "incident_cvd", "smk_curr", "PA_active", "sleep_disorder",
-        "r13agey_b", "female", "r13bmi", "uni_degree", "r13cesd"
-    ]).copy()
+        "r13agey_b", "female", "r13bmi", "uni_degree", "r13cesd"]).copy()
     print(f"Sample size for causal forest: {len(cohort_model)}")
 
     summary_rows = []
 
     cate, row = run_causal_forest(
-        cohort_model, "smk_curr", "Smoking -> Incident CVD"
-    )
+        cohort_model, "smk_curr", "Smoking -> Incident CVD")
     cohort_model["cate_smk"] = cate
     summary_rows.append(row)
 

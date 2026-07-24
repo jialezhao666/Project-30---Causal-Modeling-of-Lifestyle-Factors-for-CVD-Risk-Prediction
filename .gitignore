@@ -1,18 +1,61 @@
-data_check.ipynb
+# Python / Jupyter temporary files
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+
+# Local environment and configuration
+.env
+.env.*
+.venv/
+venv/
+const_paths.py
+
+# Raw and processed participant-level data
 data/
+**/data/
+
 *.parquet
-*.o*
+*.feather
+*.dta
+*.sav
+
+# Raw tabular data
+*.tsv
+
+# Individual-level or restricted CSV outputs
+external_validation_hrs/outputs/hrs_cohort_processed.csv
+external_validation_hrs/outputs/hrs_causal_forest_results.csv
+
+phase_II/outputs/ite_results.csv
+phase_II/outputs/joint_cate_full.csv
+phase_II/outputs/msm_cohort_*.csv
+
+# Trained models and preprocessing objects
+*.pkl
+*.pickle
+*.joblib
+*.rds
+*.npy
+*.npz
+
+# Local test / debug files
 submit_test.sh
 test.py
-const_paths.py
-__pycache__/
 
-# phase_ii data
-phase_II/outputs/*.parquet
-phase_II/outputs/*.pkl
-phase_II/outputs/*.npy
-phase_II/outputs/maf_model.rds
-
-# phase_iii
+data_check.ipynb
+phase_II/03_multiarm_joint_treatment.ipynb
+phase_II/04_longitudinal_feasibility.py
 phase_III/debug_baseline_nan.py
-phase_III/diagnose_unreliable_rate.py
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+.vscode/settings.json
+
+# HPC / Slurm output and error logs
+*.o[0-9]*
+*.e[0-9]*
+slurm-*.out
+*.out

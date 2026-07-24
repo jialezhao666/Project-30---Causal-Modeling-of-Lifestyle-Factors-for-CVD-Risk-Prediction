@@ -10,21 +10,17 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 OUTCOME = 'def_CVD_AF_HF_AFTER'
 
-
 def _clip_neg_na(x):
     c = x.astype(float)
     return c.where(c >= 0)
-
 
 def smk_current(col):
     c = _clip_neg_na(col)
     return np.where(c.isna(), np.nan, (c == 2).astype(float))
 
-
 def sleep_adequate(col):
     c = _clip_neg_na(col)
     return np.where(c.isna(), np.nan, (c >= 7).astype(float))
-
 
 def smd(x1, x0):
     """Standardised mean difference — same convention as 06_msm.py."""
@@ -36,11 +32,9 @@ def smd(x1, x0):
     return (m1 - m0) / pooled_sd
 
 
-# ============================================================
 # Step 1 — Load + derive confounders/treatments, EXACT same logic
 # as 07_cohort_characteristics.py, to guarantee a consistent
 # has_imaging (n≈73,639) definition.
-# ============================================================
 
 print("=" * 68)
 print("STEP 1: Loading full UKB cohort")
@@ -112,9 +106,7 @@ print(f"  Imaging behavioural cohort: {len(imaging_cohort):,} "
     f"(should match prior ~73,639 figure used elsewhere in thesis)")
 
 
-# ============================================================
 # Step 2 — Identify who HAS an imaging-visit date (53-2.0)
-# ============================================================
 
 print("\n" + "=" * 68)
 print("STEP 2: Identifying imaging-date availability")
@@ -141,9 +133,7 @@ if n_inc < 70000 or n_inc > 85000:
         f"before interpreting results.")
 
 
-# ============================================================
 # Step 3 — Table: included vs excluded, with SMD
-# ============================================================
 
 print("\n" + "=" * 68)
 print("STEP 3: Baseline characteristics — included vs excluded (SMD)")
@@ -152,8 +142,7 @@ print("=" * 68)
 imaging_cohort['FH_cvd_any'] = (
     (imaging_cohort['FH_cvd_f'] == 1) |
     (imaging_cohort['FH_cvd_m'] == 1) |
-    (imaging_cohort['FH_cvd_sib'] == 1)
-).astype(float)
+    (imaging_cohort['FH_cvd_sib'] == 1)).astype(float)
 imaging_cohort.loc[
     imaging_cohort['FH_cvd_f'].isna() &
     imaging_cohort['FH_cvd_m'].isna() &
@@ -162,8 +151,7 @@ imaging_cohort.loc[
 compare_vars = [
     'age_defined_baseline', 'genetic_sex', 'BMI', 'uni_degree',
     'FH_cvd_any', 'mental_doctor', 'alc_curr',
-    'smk_curr', 'PA_active', 'sleep_adequate', OUTCOME,
-]
+    'smk_curr', 'PA_active', 'sleep_adequate', OUTCOME]
 
 g_inc = imaging_cohort[imaging_cohort['group'] == 'included']
 g_exc = imaging_cohort[imaging_cohort['group'] == 'excluded']

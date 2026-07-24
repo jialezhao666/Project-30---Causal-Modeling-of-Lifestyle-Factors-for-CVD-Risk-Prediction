@@ -5,12 +5,11 @@ import matplotlib.pyplot as plt
 
 PHASE2_DIR = os.path.expanduser("~/my_ukb_thesis/phase_II")
 OUTPUT_DIR = os.path.join(PHASE2_DIR, "outputs")
+EXPECTED_N = 321188
 FIGURE_DIR = os.path.join(PHASE2_DIR, "figures")
 os.makedirs(FIGURE_DIR, exist_ok=True)
 
-# ============================================================
 # Part 1: Supplementary single-treatment CATE summary
-# ============================================================
 
 specs = [
     {
@@ -58,6 +57,13 @@ for s in specs:
     se = se_raw
     n = len(ite)
 
+    assert n == EXPECTED_N, (
+        f"{s['ite_file']} has {n:,} rows, expected {EXPECTED_N:,}. "
+        "Re-run 02_causalforest on the 70% Phase II analysis set.")
+    assert len(se) == EXPECTED_N, (
+        f"{s['se_file']} has {len(se):,} rows, expected {EXPECTED_N:,}. "
+        "Re-run 02_causalforest on the 70% Phase II analysis set.")
+    
     mean_cate = float(np.mean(ite))
     sd_cate = float(np.std(ite, ddof=1))
     se_mean = sd_cate / np.sqrt(n)
@@ -81,8 +87,7 @@ for s in specs:
         "se_max": float(np.max(se)),
         "pct_protective": float(np.mean(ite < 0) * 100),
         "pct_harmful": float(np.mean(ite > 0) * 100),
-        "note": s["note"],
-    })
+        "note": s["note"]})
 
 summary = pd.DataFrame(rows)
 summary_path = os.path.join(OUTPUT_DIR, "single_treatment_cate_summary.csv")
@@ -93,25 +98,29 @@ print(summary)
 print(f"Saved: single_treatment_cate_summary.csv")
 
 
-# ============================================================
 # Part 2: Dissertation-ready joint CATE bar chart with CI
-# ============================================================
 
 joint_path = os.path.join(OUTPUT_DIR, "joint_cate_summary.parquet")
 
 if os.path.exists(joint_path):
     joint = pd.read_parquet(joint_path)
     joint = joint.sort_values("arm").copy()
+    
+    if 'n' in joint.columns:
+        n_unique = joint['n'].dropna().unique()
+        print(f"  joint_cate_summary.parquet n values: {n_unique}")
+        assert 321188 in n_unique, (
+            "Expected joint_cate_summary.parquet from the 70% Phase II analysis set. "
+            "Re-run 03_multiarm_joint.")
 
     label_map = {
-        1: "No current smoking\nonly",
+        1: "Current non-smoker\nonly",
         2: "Increase physical\nactivity only",
-        3: "No current smoking +\nincrease activity",
+        3: "Current non-smoker +\nincrease activity",
         4: "Improve sleep\nonly",
-        5: "No current smoking +\nimprove sleep",
+        5: "Current non-smoker +\nimprove sleep",
         6: "Increase activity +\nimprove sleep",
-        7: "All three\nchanges",
-    }
+        7: "All three\nchanges"}
 
     group_map = {
         1: "1 lifestyle change",
@@ -120,14 +129,12 @@ if os.path.exists(joint_path):
         3: "2 lifestyle changes",
         5: "2 lifestyle changes",
         6: "2 lifestyle changes",
-        7: "3 lifestyle changes",
-    }
+        7: "3 lifestyle changes"}
 
     color_map = {
         "1 lifestyle change": "#8DB9D6",
         "2 lifestyle changes": "#4F76B5",
-        "3 lifestyle changes": "#2C5573",
-    }
+        "3 lifestyle changes": "#2C5573"}
 
     # Logical display order: singles, pairs, all three
     display_order = [1, 4, 2, 3, 5, 6, 7]
@@ -143,26 +150,12 @@ if os.path.exists(joint_path):
 
     fig, ax = plt.subplots(figsize=(14, 6.0))
 
-    bars = ax.bar(
-        x,
-        y,
-        color=plot_df["color"],
-        width=0.6,
-        edgecolor="white",
-        linewidth=0.8,
-    )
+    bars = ax.bar(x, y, color=plot_df["color"],
+        width=0.6, edgecolor="white", linewidth=0.8)
 
-    ax.errorbar(
-        x,
-        y,
-        yerr=[yerr_low, yerr_high],
-        fmt="none",
-        ecolor="black",
-        elinewidth=1.2,
-        capsize=3,
-        capthick=1.2,
-        zorder=3,
-    )
+    ax.errorbar(x, y, yerr=[yerr_low, yerr_high],
+        fmt="none", ecolor="black", elinewidth=1.2,
+        capsize=3, capthick=1.2, zorder=3)
 
     ax.axhline(0, color="black", linewidth=1.1)
     ax.set_xticks(x)
@@ -177,26 +170,17 @@ if os.path.exists(joint_path):
     for i, row in enumerate(plot_df.itertuples()):
         label = (
             f"{row.mean_cate:.4f}\n"
-            f"[{row.ci_low:.4f}, {row.ci_high:.4f}]"
-        )
-        ax.text(
-            i,
-            row.mean_cate - 0.004,
-            label,
-            ha="center",
-            va="top",
-            fontsize=8.5,
-            color="black",
-            linespacing=1.05,
-        )
+            f"[{row.ci_low:.4f}, {row.ci_high:.4f}]")
+        ax.text(i, row.mean_cate - 0.004, label,
+            ha="center", va="top", fontsize=8.5,
+            color="black", linespacing=1.05)
 
     # Legend
     from matplotlib.patches import Patch
     handles = [
         Patch(facecolor=color_map["1 lifestyle change"], label="1 lifestyle change"),
         Patch(facecolor=color_map["2 lifestyle changes"], label="2 lifestyle changes"),
-        Patch(facecolor=color_map["3 lifestyle changes"], label="3 lifestyle changes"),
-    ]
+        Patch(facecolor=color_map["3 lifestyle changes"], label="3 lifestyle changes")]
     ax.legend(handles=handles, loc="lower left", frameon=False)
 
     plt.tight_layout()

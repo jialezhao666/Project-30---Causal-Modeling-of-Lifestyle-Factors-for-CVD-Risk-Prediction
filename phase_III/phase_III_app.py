@@ -16,61 +16,58 @@ from rpy2.robjects.conversion import localconverter
 
 _converter = ro.default_converter + numpy2ri.converter
 
-# ============================================================
 # Configuration
-# ============================================================
 
 # Paths — adjust if running outside HPC
 BASE_DIR = os.path.expanduser("~/my_ukb_thesis")
 OUTPUTS_DIR = os.path.join(BASE_DIR, "phase_II/outputs")
 DATA_DIR = os.path.join(BASE_DIR, "data")
 
-# Phase I: logistic regression coefficients (statsmodels Logit, Split B)
+# Phase I: logistic regression coefficients
+# statsmodels Logit fitted on the 70% model-development set
 # Continuous vars (age, BMI, sleep_hrs) standardised before prediction
-LR_INTERCEPT = -2.936917
+LR_INTERCEPT = -2.9226
+
 LR_COEFS = {
-    "age_defined_baseline": 0.702113,
-    "BMI": 0.228672,
-    "sleep_hrs": -0.028416,
-    "genetic_sex": 0.757434,
-    "mental_doctor": 0.209540,
-    "uni_degree": -0.182411,
-    "FH_cvd_f": 0.178086,
-    "FH_cvd_m": 0.234762,
-    "FH_cvd_sib": 0.245727,
-    "smk_prev": 0.136889,
-    "smk_curr": 0.582529,
-    "alc_curr": -0.277854,
-    "PA_active": -0.090007,
-}
+    "age_defined_baseline": 0.7010,
+    "BMI": 0.2274,
+    "sleep_hrs": -0.0253,
+    "genetic_sex": 0.7574,
+    "mental_doctor": 0.2068,
+    "uni_degree": -0.1793,
+    "FH_cvd_f": 0.1738,
+    "FH_cvd_m": 0.2328,
+    "FH_cvd_sib": 0.2473,
+    "smk_prev": 0.1327,
+    "smk_curr": 0.5749,
+    "alc_curr": -0.2829,
+    "PA_active": -0.0955}
 
 # Phase I scaler params (StandardScaler fitted on Split B continuous cols)
 LR_SCALER = {
-    "age_defined_baseline": {"mean": 56.207423, "std": 8.106073},
-    "BMI": {"mean": 27.192648, "std": 4.646652},
-    "sleep_hrs": {"mean": 7.146948, "std": 1.078493},
-}
+    "age_defined_baseline": {"mean": 56.213115, "std": 8.104756},
+    "BMI": {"mean": 27.196404, "std": 4.649991},
+    "sleep_hrs": {"mean": 7.147444, "std": 1.078632}}
 
 # Phase II : confounder column order (must match confounder_scaler.pkl)
 NB3_CONFOUNDER_COLS = [
     "age_defined_baseline", "genetic_sex", "BMI", "uni_degree",
-    "FH_cvd_f", "FH_cvd_m", "FH_cvd_sib", "mental_doctor", "alc_curr",
-]
+    "FH_cvd_f", "FH_cvd_m", "FH_cvd_sib", "mental_doctor", "alc_curr"]
 
-# population-average CATEs (from joint_cate_summary.parquet, n=298,245)
+# population-average CATEs (from joint_cate_summary.parquet, n=321,188)
 # Used to flag when an individual's predicted direction diverges from the
-# population-level finding reported in the thesis.
+# population-level finding reported in the thesis
 POP_AVG_CATE = {
-    1: -0.070973,  # no_smk only
-    2: -0.028031,  # PA only
-    3: -0.080976,  # no_smk + PA
-    4: -0.039017,  # sleep only
-    5: -0.080518,  # no_smk + sleep
-    6: -0.049289,  # PA + sleep
-    7: -0.085386,  # all three
-}
+    1: -0.0704,  # no_smk only
+    2: -0.0278,  # PA only
+    3: -0.0792,  # no_smk + PA
+    4: -0.0383,  # sleep only
+    5: -0.0787,  # no_smk + sleep
+    6: -0.0473,  # PA + sleep
+    7: -0.0838}  # all three
 
-REF_CVD_RATE = 0.08790088685476706
+
+REF_CVD_RATE =  0.08790282741987039
 REF_SLOPE = REF_CVD_RATE * (1 - REF_CVD_RATE)
 
 # arm encoding: T = no_smk + PA*2 + sleep*4
@@ -82,13 +79,11 @@ ARM_DESCRIPTIONS = {
     4: "Improve sleep (≥ 7 h)",
     5: "Quit smoking + improve sleep",
     6: "Become active + improve sleep",
-    7: "All three lifestyle changes",
-}
+    7: "All three lifestyle changes"}
 
 
-# ============================================================
 # Model Loading (cached so only loaded once)
-# ============================================================
+
 
 @st.cache_resource
 def load_grf_model():
@@ -115,19 +110,20 @@ def load_logit_model():
 
 @st.cache_data
 def load_sample_support_bounds():
-    """Compute 1st / 99th percentiles from Split B for sample-support check."""
+    """Compute 1st / 99th percentiles from the 70% model-development set."""
     cols = ["age_defined_baseline", "BMI", "sleep_hrs"]
-    df = pd.read_parquet(os.path.join(DATA_DIR, "split_B_train.parquet"), columns=cols)
+    df = pd.read_parquet(
+        os.path.join(DATA_DIR, "model_development_70.parquet"),
+        columns=cols)
     return {
         col: {"p1": float(df[col].quantile(0.01)),
-               "p99": float(df[col].quantile(0.99))}
+            "p99": float(df[col].quantile(0.99))}
         for col in cols
     }
 
 
-# ============================================================
+
 # Prediction helpers
-# ============================================================
 
 def _sigmoid(x):
     return 1.0 / (1.0 + np.exp(-x))
@@ -140,8 +136,7 @@ def _logit(p, eps=1e-6):
 LR_FEATURE_ORDER = [
     "age_defined_baseline", "BMI", "sleep_hrs", "genetic_sex", "mental_doctor",
     "uni_degree", "FH_cvd_f", "FH_cvd_m", "FH_cvd_sib", "smk_prev",
-    "smk_curr", "alc_curr", "PA_active",
-]
+    "smk_curr", "alc_curr", "PA_active"]
 
 
 def predict_baseline_risk(inputs: dict) -> tuple[float, float, float]:
@@ -226,6 +221,13 @@ def risk_category(risk_pct: float) -> str:
     else:
         return "High"
 
+def format_risk_pct(risk: float) -> str:
+    """Format probability as percentage."""
+    return f"{risk * 100:.1f}%"
+
+def format_risk_ci(ci_low: float, ci_high: float) -> str:
+    """Format probability-scale confidence interval as percentages."""
+    return f"[{ci_low * 100:.1f}%, {ci_high * 100:.1f}%]"
 
 def compute_scenario(baseline_risk, cates, cate_ses, current_arm, tgt):
     """
@@ -250,7 +252,7 @@ def compute_scenario(baseline_risk, cates, cate_ses, current_arm, tgt):
     delta = tgt_cate - cur_cate
     delta_se = float(np.sqrt(tgt_se**2 + cur_se**2))
 
-    # --- Logit-scale combination ---
+    #  Logit-scale combination 
     p = baseline_risk
     slope = max(p * (1 - p), 1e-9)  # avoid div-by-zero as p -> 0 or 1
     delta_logit = delta / slope
@@ -323,8 +325,7 @@ def compute_scenario(baseline_risk, cates, cate_ses, current_arm, tgt):
         "tier": tier,
         "direction": "decrease" if risk_change < 0 else "increase",
         "magnitude_label": magnitude_label,
-        "pop_avg": pop_avg,
-    }
+        "pop_avg": pop_avg}
 
 
 def build_scenarios(baseline_risk, cates, cate_ses, current_arm):
@@ -366,9 +367,7 @@ def check_support(inputs, bounds):
     return warnings
 
 
-# ============================================================
 # Streamlit App
-# ============================================================
 
 st.set_page_config(page_title="CVD Risk Simulation", layout="wide")
 
@@ -379,23 +378,21 @@ st.error(
     "and is **not a validated clinical risk calculator**. Estimates rely on "
     "assumptions (e.g. no unmeasured confounding) that cannot be fully verified. "
     "Do not use this tool to make medical decisions — speak to a doctor about your "
-    "individual CVD risk and prevention options."
-)
+    "individual CVD risk and prevention options.")
 
 st.markdown(
     "This tool estimates your 10-year risk of cardiovascular disease (CVD, including "
     "heart failure and atrial fibrillation) and shows how lifestyle changes could "
     "reduce that risk, based on causal effect estimates from UK Biobank data "
-    "(n = 298,245)."
-)
+    "(n = 321,188).")
 
-# ---- Load models ----
+# Load models 
 with st.spinner("Loading models (first run only)…"):
     load_grf_model()
     load_logit_model()
     bounds = load_sample_support_bounds()
 
-# ---- Sidebar inputs ----
+# Sidebar inputs 
 with st.sidebar:
     st.header("Your Profile")
 
@@ -410,13 +407,11 @@ with st.sidebar:
         mental = st.radio(
             "Seen a doctor for anxiety or depression?", ["No", "Yes"], horizontal=True,
             help="Have you ever consulted a GP or other doctor specifically "
-                 "about feelings of anxiety or depression?",
-        )
+                "about feelings of anxiety or depression?")
         alc = st.radio(
             "Current alcohol drinker?", ["No", "Yes"], horizontal=True,
             help="Drinks alcohol at least occasionally, as opposed to "
-                 "never or having stopped entirely.",
-        )
+                "never or having stopped entirely.")
 
         st.subheader("Family History of Heart Disease / Stroke")
         fh_f = st.radio("Father", ["No", "Yes"], horizontal=True, key="fh_f")
@@ -427,17 +422,14 @@ with st.sidebar:
         smoking_status = st.radio(
             "Smoking status", ["Never", "Previous", "Current"], horizontal=True,
             help="'Previous' = used to smoke regularly but has now stopped; "
-                 "'Current' = currently smokes (any frequency).",
-        )
+                "'Current' = currently smokes (any frequency).",)
         pa = st.radio(
             "Physically active?", ["No", "Yes"], horizontal=True,
-            help="≥ 150 min moderate or ≥ 75 min vigorous activity per week",
-        )
+            help="≥ 150 min moderate or ≥ 75 min vigorous activity per week")
         sleep_hrs = st.slider(
             "Average sleep (hours / night)", 3.0, 12.0, 7.0, 0.5,
             help="This tool treats ≥ 7 hours/night as 'adequate' sleep, "
-                 "the threshold used in the underlying causal analysis.",
-        )
+                "the threshold used in the underlying causal analysis.")
 
         submitted = st.form_submit_button("Calculate my risk", type="primary", use_container_width=True)
 
@@ -455,7 +447,7 @@ if not st.session_state.has_run:
     st.info("👈 Fill in your profile in the sidebar and click **Calculate my risk** to begin.")
     st.stop()
 
-# ---- Derive model inputs ----
+# Derive model inputs 
 inputs = {
     "age_defined_baseline": float(age),
     "genetic_sex": 1.0 if sex == "Male" else 0.0,
@@ -469,11 +461,10 @@ inputs = {
     "smk_prev": 1.0 if smoking_status == "Previous" else 0.0,
     "smk_curr": 1.0 if smoking_status == "Current" else 0.0,
     "PA_active": 1.0 if pa == "Yes" else 0.0,
-    "sleep_hrs": float(sleep_hrs),
-}
+    "sleep_hrs": float(sleep_hrs)}
 sleep_adequate = 1.0 if sleep_hrs >= 7.0 else 0.0
 
-# ---- Compute ----
+# Compute 
 baseline_risk, baseline_ci_low, baseline_ci_high = predict_baseline_risk(inputs)
 
 W_raw = {c: inputs[c] for c in NB3_CONFOUNDER_COLS}
@@ -482,18 +473,18 @@ cates, cate_ses = predict_cates(W_raw)
 no_smk = 1.0 - inputs["smk_curr"]
 current_arm_idx = arm_index(int(no_smk), int(inputs["PA_active"]), int(sleep_adequate))
 
-# ---- Display: current risk ----
+# Display: current risk 
 col_left, col_right = st.columns([1, 2])
 
 with col_left:
     risk_pct = baseline_risk * 100
-    st.metric("Your Estimated 10-Year CVD Risk", f"{risk_pct:.1f} %")
-    st.caption(f"95% CI: [{baseline_ci_low * 100:.1f} %, {baseline_ci_high * 100:.1f} %]")
+    st.metric("Your Estimated 10-Year CVD Risk", format_risk_pct(baseline_risk))
+    st.caption(f"95% CI: {format_risk_ci(baseline_ci_low, baseline_ci_high)}")
     baseline_category = risk_category(risk_pct)
     _category_widget = {"Low": st.success, "Moderate": st.info,
-                         "Elevated": st.warning, "High": st.error}[baseline_category]
+                        "Elevated": st.warning, "High": st.error}[baseline_category]
     _category_widget(f"{baseline_category} risk")
- 
+
 with col_right:
     # Current behaviour summary
     behaviours = []
@@ -507,16 +498,15 @@ with col_right:
     behaviours.append(f"Sleep {sleep_hrs:.1f} h / night ({'adequate' if sleep_adequate else 'insufficient'})")
     st.markdown("**Current lifestyle:** " + "  ·  ".join(behaviours))
 
-# ---- Sample-support warning ----
+# Sample-support warning 
 sw = check_support(inputs, bounds)
 if sw:
     st.warning(
         "**Sample support warning** — some inputs fall outside the 1st–99th "
         "percentile of the training data. Estimates may be less reliable:\n\n"
-        + "\n".join(f"- {w}" for w in sw)
-    )
- 
-# ---- Display: user-driven scenario simulation ----
+        + "\n".join(f"- {w}" for w in sw))
+
+#  Display: user-driven scenario simulation 
 st.divider()
 
 cur_nosmk_flag = int(no_smk)
@@ -526,36 +516,31 @@ cur_sleep_flag = int(sleep_adequate)
 if current_arm_idx == 7:
     st.success(
         "You are already following all three healthy behaviours — "
-        "no further lifestyle improvements to simulate."
-    )
+        "no further lifestyle improvements to simulate.")
 else:
     st.subheader("What if you changed your lifestyle?")
     st.caption(
         "Tick the changes you'd like to simulate, then press **Simulate**. "
         "You can select one change or combine several. Behaviours you "
         "already follow are disabled below, since there's nothing to "
-        "change there."
-    )
+        "change there.")
 
     chk_col1, chk_col2, chk_col3 = st.columns(3)
     with chk_col1:
         want_quit_smoking = st.checkbox(
             "Quit smoking", value=False, disabled=bool(cur_nosmk_flag),
             help=("Already part of your current lifestyle." if cur_nosmk_flag
-                  else "Simulate the effect of quitting smoking."),
-        )
+                else "Simulate the effect of quitting smoking."))
     with chk_col2:
         want_pa = st.checkbox(
             "Become physically active", value=False, disabled=bool(cur_pa_flag),
             help=("Already part of your current lifestyle." if cur_pa_flag
-                  else "≥ 150 min moderate or ≥ 75 min vigorous activity per week."),
-        )
+                else "≥ 150 min moderate or ≥ 75 min vigorous activity per week."))
     with chk_col3:
         want_sleep = st.checkbox(
             "Improve sleep (≥ 7 h)", value=False, disabled=bool(cur_sleep_flag),
             help=("Already part of your current lifestyle." if cur_sleep_flag
-                  else "Simulate increasing average sleep to 7 hours or more per night."),
-        )
+                else "Simulate increasing average sleep to 7 hours or more per night."))
 
     simulate_clicked = st.button("Simulate", type="primary")
 
@@ -573,8 +558,7 @@ else:
             st.warning("Tick at least one behaviour change above, then press **Simulate**.")
         else:
             st.session_state.sim_result = compute_scenario(
-                baseline_risk, cates, cate_ses, current_arm_idx, tgt_arm
-            )
+                baseline_risk, cates, cate_ses, current_arm_idx, tgt_arm)
 
     sim = st.session_state.get("sim_result")
     if sim is not None:
@@ -582,27 +566,25 @@ else:
 
         if sim["tier"] == "reliable":
             m1, m2, m3 = st.columns(3)
-            m1.metric("New Risk", f"{sim['new_risk'] * 100:.1f} %",
-                      delta=f"{sim['risk_change'] * 100:+.1f} pp",
-                      delta_color="inverse")  
+            m1.metric("New Risk", format_risk_pct(sim["new_risk"]),
+                    delta=f"{sim['risk_change'] * 100:+.1f} percentage points",
+                    delta_color="inverse")  
             m2.metric("New Risk 95% CI",
-                      f"[{sim['new_risk_ci_low'] * 100:.1f}, {sim['new_risk_ci_high'] * 100:.1f}]")
-            m3.metric("From baseline", f"{baseline_risk * 100:.1f} %")
+                        format_risk_ci(sim["new_risk_ci_low"], sim["new_risk_ci_high"]))
+            m3.metric("Baseline Risk", format_risk_pct(baseline_risk))
 
             new_category = risk_category(sim["new_risk"] * 100)
             if new_category != baseline_category:
                 st.success(
                     f"This change is predicted to move you from "
-                    f"**{baseline_category} risk** to **{new_category} risk**."
-                )
+                    f"**{baseline_category} risk** to **{new_category} risk**.")
 
             st.caption(
                 "The 95% CI reflects estimation uncertainty for someone with "
                 "**your specific profile** — it is much wider than a typical "
                 "group-average range, because predicting one person's outcome "
                 "is inherently less certain than estimating an average effect "
-                "across a large group."
-            )
+                "across a large group.")
 
         elif sim["tier"] == "direction_only":
             # The direction is the single most important piece of
@@ -622,8 +604,7 @@ else:
                     "differ from the typical pattern — this isn't a tool "
                     "error — but it's worth knowing your result here runs "
                     "against the general trend. The exact size of the effect "
-                    "for you is too uncertain to show as a specific number."
-                )
+                    "for you is too uncertain to show as a specific number.")
                 st.caption(
                     "Why might this happen? One possible explanation: the "
                     "model can only learn from the information it's given, "
@@ -634,15 +615,13 @@ else:
                     "a lifestyle change for them — even though the change "
                     "is still likely beneficial in general. This is one "
                     "plausible reason among others, not a confirmed cause "
-                    "for your specific result."
-                )
+                    "for your specific result.")
             else:
                 st.info(
                     "ℹ️ **Not precise enough for a specific number.** The "
                     "direction above is a reasonably confident estimate, but "
                     "there isn't enough precision in the data to give an "
-                    "exact percentage for your specific profile."
-                )
+                    "exact percentage for your specific profile.")
 
         else:  # unreliable
             st.warning(
@@ -651,14 +630,15 @@ else:
                 "too large to confidently say whether this change would "
                 "increase or decrease your risk. This doesn't mean the "
                 "change has no effect — it means this tool can't pin down "
-                "the effect precisely enough for you individually."
-            )
+                "the effect precisely enough for you individually.")
 
 # ---- Methodology ----
 with st.expander("Methodology & Limitations"):
     st.markdown("""
-**Baseline risk** is estimated by a logistic regression model trained on
-298,245 UK Biobank participants (AUC = 0.73 on held-out Split C).
+**Baseline risk** is estimated by a logistic regression model fitted on the
+70% UK Biobank model-development set (n = 321,188) after Elastic Net ranking
+and clinical review. It achieved a c-statistic of 0.727 on the untouched 
+internal test set.
 
 **Causal effects** are estimated by a multi-arm causal forest (Athey, Tibshirani
 & Wager, 2019) that jointly models seven combinations of three lifestyle

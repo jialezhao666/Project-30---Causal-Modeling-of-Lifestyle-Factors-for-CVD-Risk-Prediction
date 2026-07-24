@@ -19,20 +19,31 @@ FIGURES_DIR = os.path.expanduser('~/my_ukb_thesis/phase_II/figures')
 os.makedirs(OUTPUT_DIR,  exist_ok=True)
 os.makedirs(FIGURES_DIR, exist_ok=True)
 # Load ITE and joint CATE results, merge if both available
+EXPECTED_N = 321188
 ite = pd.read_parquet(os.path.join(OUTPUT_DIR, 'ite_results.parquet'))
 print(f"  ite_results.parquet    : {ite.shape}  columns: {ite.columns.tolist()}")
+assert ite.shape[0] == EXPECTED_N, (
+    f"Expected ite_results.parquet from 70% Phase II analysis set "
+    f"({EXPECTED_N:,} rows), got {ite.shape[0]:,}. Re-run 02_causalforest.")
 
 joint_path = os.path.join(OUTPUT_DIR, 'joint_cate_full.parquet')
 if os.path.exists(joint_path):
     joint = pd.read_parquet(joint_path)
     print(f"  joint_cate_full.parquet: {joint.shape}  columns: {joint.columns.tolist()}")
+    assert joint.shape[0] == EXPECTED_N, (
+        f"Expected joint_cate_full.parquet from 70% Phase II analysis set "
+        f"({EXPECTED_N:,} rows), got {joint.shape[0]:,}. Re-run 03_multiarm_joint.")
+
     df = ite.merge(joint, on='eid', how='inner')
     print(f"  after merge: {df.shape}")
+    assert df.shape[0] == EXPECTED_N, (
+        f"Expected merged ITE + joint CATE data to have {EXPECTED_N:,} rows, "
+        f"got {df.shape[0]:,}. Check that 02 and 03 used the same input file.")
     HAS_JOINT = True
 else:
     df = ite.copy()
     HAS_JOINT = False
-    print("  joint_cate_full.parquet not found — heterogeneity skipped")
+    print("  joint_cate_full.parquet not found - heterogeneity skipped")
     
 # Re-orient smoking effect to the healthy-behaviour direction.
 # Original ite_smk = effect of current smoking vs non-current smoking.
@@ -46,11 +57,11 @@ if 'se_smk' in df.columns:
 # create subgroup bins
 # age bands: <55, 55-65, >=65 
 df['age_band'] = pd.cut(df['age_defined_baseline'],
-                        bins=[0, 55, 65, 200],
+                        bins=[-np.inf, 55, 65, np.inf], right= False,
                         labels=['<55', '55-65', '>=65'])
 # BMI bands: <25, 25-30, >=30
 df['bmi_band'] = pd.cut(df['BMI'],
-                        bins=[0, 25, 30, 200],
+                        bins=[-np.inf, 25, 30, np.inf], right= False,
                         labels=['<25', '25-30', '>=30'])
 # sex labels
 df['sex_label'] = df['genetic_sex'].map({0: 'Female', 1: 'Male'})
@@ -59,18 +70,16 @@ df['sex_label'] = df['genetic_sex'].map({0: 'Female', 1: 'Male'})
 
 # define which outcomes to analyze
 single_targets = {
-    'ite_no_smk': 'No current smoking',
+    'ite_no_smk': 'Not currently smoking',
     'ite_pa': 'Physically active',
-    'ite_sleep': 'Adequate sleep',
-}
+    'ite_sleep': 'Adequate sleep'}
 joint_targets = {}
 if HAS_JOINT:
     joint_targets = {
-        'cate_arm1_vs0': 'No current smoking only (arm 1)',
+        'cate_arm1_vs0': 'Not currently smoking only (arm 1)',
         'cate_arm2_vs0': 'Physically active only (arm 2)',
         'cate_arm4_vs0': 'Adequate sleep only (arm 4)',
-        'cate_arm7_vs0': 'all three (arm 7)',
-    }
+        'cate_arm7_vs0': 'all three (arm 7)'}
 all_targets = {**single_targets, **joint_targets}
 # Run BLP-style OLS for each outcome, save results in a list of dicts for export
 blp_rows = []
@@ -91,8 +100,7 @@ for col, label in all_targets.items():
         print(f"  {vname:<25} {c:>+9.5f} {se:>9.5f} {t:>7.2f} {p:>8.4f} {sig}")
         blp_rows.append({
             'outcome': label, 'variable': vname,
-            'coef': c, 'se': se, 'tstat': t, 'pval': p,
-        })
+            'coef': c, 'se': se, 'tstat': t, 'pval': p})
     print(f"  R² = {res.rsquared:.4f}")
 
 blp_df = pd.DataFrame(blp_rows)
@@ -151,14 +159,13 @@ print(f"\nSaved: heterogeneity_subgroup.csv")
 
 # figure 1: single intervention ite by subgroup
 ITE_COLS   = ['ite_no_smk', 'ite_pa', 'ite_sleep']
-ITE_LABELS = ['No current smoking', 'Physically active', 'Adequate sleep']
+ITE_LABELS = ['Not currently smoking', 'Physically active', 'Adequate sleep']
 ITE_COLORS = ['#C44E52', '#4C72B0', '#55A868']
 
 STRAT_VARS = [
     ('sex_label', 'Sex', ['Female', 'Male']),
     ('age_band', 'Age band', ['<55', '55-65', '>=65']),
-    ('bmi_band', 'BMI band', ['<25', '25-30', '>=30']),
-]
+    ('bmi_band', 'BMI band', ['<25', '25-30', '>=30'])]
 
 fig, axes = plt.subplots(3, 3, figsize=(13, 10))
 
@@ -211,8 +218,7 @@ fig2.subplots_adjust(left=0.22, right=0.90, wspace=0.42)
 STRAT_ORDER2 = [
     ('sex', ['Female', 'Male']),
     ('age band', ['<55', '55-65', '>=65']),
-    ('BMI band', ['<25', '25-30', '>=30']),
-]
+    ('BMI band', ['<25', '25-30', '>=30'])]
 
 for ax_idx, (ax, col, lbl, color) in enumerate(
         zip(axes2, ITE_COLS, ITE_LABELS, ITE_COLORS)):
@@ -346,27 +352,12 @@ for ax_idx, (ax, col, lbl, color) in enumerate(
             # Draw 95% CI in black.
             # These CIs may still be visually hidden by the point because
             # they are very narrow subgroup-mean confidence intervals.
-            ax.errorbar(
-                x=m,
-                y=pos,
-                xerr=np.array([[m - ci_lo], [ci_hi - m]]),
-                fmt='none',
-                ecolor='black',
-                elinewidth=1.2,
-                capsize=3,
-                capthick=1.2,
-                zorder=3
-            )
+            ax.errorbar(x=m, y=pos, xerr=np.array([[m - ci_lo], [ci_hi - m]]),
+                fmt='none', ecolor='black', elinewidth=1.2, capsize=3,
+                capthick=1.2, zorder=3)
 
             # Point estimate
-            ax.scatter(
-                m,
-                pos,
-                color=color,
-                s=55,
-                edgecolor='none',
-                zorder=4
-            )
+            ax.scatter(m, pos, color=color, s=55, edgecolor='none', zorder=4)
 
             y_pos_list.append(pos)
             ylabels_list.append(f"{strat_name}: {lvl}  (n={int(r['n']):,})")
@@ -380,29 +371,16 @@ for ax_idx, (ax, col, lbl, color) in enumerate(
         pos += 0.65
 
     # Overall mean line for this intervention
-    ax.axvline(
-        overall_mean,
-        color='black',
-        lw=1.0,
-        ls='-',
-        alpha=0.45
-    )
+    ax.axvline(overall_mean, color='black', lw=1.0, ls='-', alpha=0.45)
 
     # No-change reference line
-    ax.axvline(
-        0,
-        color='grey',
-        lw=0.8,
-        ls='--',
-        alpha=0.60
-    )
+    ax.axvline(0, color='grey', lw=0.8, ls='--', alpha=0.60)
 
     # Y-axis labels only on the first panel
     ax.set_yticks(y_pos_list)
     ax.set_yticklabels(
         ylabels_list if ax_idx == 0 else ['' for _ in y_pos_list],
-        fontsize=9
-    )
+        fontsize=9)
 
     ax.set_ylim(max(y_pos_list) + 0.6, -0.5)
     ax.invert_yaxis()
@@ -420,13 +398,7 @@ for ax_idx, (ax, col, lbl, color) in enumerate(
     ax.set_xlabel('Mean risk difference', fontsize=9)
 
     # Keep panel titles only. Do not add an overall plot title.
-    ax.set_title(
-        lbl,
-        fontsize=11,
-        color=color,
-        pad=8,
-        fontweight='bold'
-    )
+    ax.set_title(lbl, fontsize=11, color=color, pad=8, fontweight='bold')
 
     ax.spines[['top', 'right']].set_visible(False)
     ax.yaxis.grid(True, alpha=0.18, lw=0.5)
@@ -435,63 +407,27 @@ for ax_idx, (ax, col, lbl, color) in enumerate(
     # Right-side numeric column: mean RD and 95% CI in black
     trans = blended_transform_factory(ax.transAxes, ax.transData)
 
-    ax.text(
-        1.03,
-        -0.35,
-        'Mean RD (95% CI)',
-        transform=trans,
-        va='center',
-        ha='left',
-        fontsize=7.5,
-        color='black',
-        fontweight='bold'
-    )
+    ax.text(1.03, -0.35, 'Mean RD (95% CI)', transform=trans,
+        va='center', ha='left', fontsize=7.5, color='black', fontweight='bold')
 
     for y, m, ci_lo, ci_hi in zip(
             y_pos_list, means_list, all_ci_lo, all_ci_hi):
 
         label = f'{m:+.4f}\n({ci_lo:+.4f}, {ci_hi:+.4f})'
 
-        ax.text(
-            1.03,
-            y,
-            label,
-            transform=trans,
-            va='center',
-            ha='left',
-            fontsize=7.2,
-            color='black',
-            family='monospace',
-            fontweight='normal',
-            linespacing=1.25
-        )
+        ax.text(1.03, y, label, transform=trans,
+            va='center', ha='left', fontsize=7.2, color='black',
+            family='monospace', fontweight='normal', linespacing=1.25)
 
 # Shared legend only, no highlight legend
 legend_handles = [
-    Line2D(
-        [0], [0],
-        color='black',
-        lw=1.0,
-        alpha=0.45,
-        label='Overall mean'
-    ),
-    Line2D(
-        [0], [0],
-        color='grey',
-        lw=0.8,
-        ls='--',
-        label='No change'
-    )
-]
+    Line2D([0], [0], color='black',
+        lw=1.0, alpha=0.45,label='Overall mean'),
+    Line2D([0], [0], color='grey',
+        lw=0.8, ls='--', label='No change')]
 
-fig3.legend(
-    handles=legend_handles,
-    loc='lower center',
-    bbox_to_anchor=(0.52, 0.02),
-    ncol=2,
-    frameon=False,
-    fontsize=8
-)
+fig3.legend(handles=legend_handles, loc='lower center',
+    bbox_to_anchor=(0.52, 0.02), ncol=2, frameon=False, fontsize=8)
 
 forest_zoom_path = os.path.join(FIGURES_DIR, 'heterogeneity_forest_zoom.png')
 fig3.savefig(forest_zoom_path, dpi=300, bbox_inches='tight')

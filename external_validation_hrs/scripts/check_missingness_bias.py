@@ -17,7 +17,7 @@ needed_cols = [
     "r13cesd", "r13depres",
     "r13drinkn",
     "r13heart", "r14heart", "r15heart", "r16heart",
-    "r13strok", "r14strok", "r15strok", "r16strok",
+    "r13strok", "r14strok", "r15strok", "r16strok"
 ]
 
 df = pd.read_stata(RAND_PATH, columns=needed_cols, convert_categoricals=False)
@@ -29,8 +29,7 @@ print(f"Total respondents in raw file: {len(df)}")
 
 baseline_required = [
     "r13smokev", "r13smoken", "r13vgactx", "r13sleep",
-    "r13heart", "r13strok", "r13bmi", "r13agey_b", "ragender"
-]
+    "r13heart", "r13strok", "r13bmi", "r13agey_b", "ragender"]
 
 df["has_complete_baseline"] = df[baseline_required].notna().all(axis=1)
 
@@ -43,17 +42,13 @@ print(f"Incomplete baseline data (excluded by complete-case approach): {n_incomp
 # Step 2: Compare baseline characteristics between the two groups
 # check whether complete-case exclusion is associated with
 # systematic differences 
-
 compare_vars = ["r13agey_b", "ragender", "r13bmi", "raedyrs"]
 
 print("\n=== Comparison: Complete vs Incomplete baseline data ===")
 comparison = df.groupby("has_complete_baseline")[compare_vars].agg(['mean', 'count'])
 print(comparison)
 
-
 # Step 3: Standardised Mean Difference (SMD) for each variable
-# SMD > 0.1 is the conventional threshold for a "meaningful" imbalance
-# (same convention used in your UKB Task B imaging-date selection check)
 
 def smd(group1, group2):
     mean1, mean2 = group1.mean(), group2.mean()

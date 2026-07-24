@@ -1,6 +1,11 @@
 import os, sys
 import numpy as np
 import pandas as pd
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 sys.path.insert(0, os.path.expanduser('~/my_ukb_thesis'))
 from const_paths import BASE_PATH, SAVE_DIR
@@ -25,8 +30,7 @@ CONFOUNDER_LABELS = {
     'FH_cvd_m': 'Family history of CVD in mother',
     'FH_cvd_sib': 'Family history of CVD in sibling',
     'mental_doctor': 'Mental-health treatment history',
-    'alc_curr': 'Current alcohol use',
-}
+    'alc_curr': 'Current alcohol use'}
 
 INTERVENTIONS = ['smk', 'pa', 'sleep', 'smk_sleep', 'pa_sleep', 'smk_pa']
 PRIMARY_INTERVENTIONS = ['smk', 'pa', 'sleep']
@@ -38,8 +42,7 @@ INTERVENTION_LABELS = {
     'sleep': 'Achieving adequate sleep',
     'smk_sleep': 'Smoking cessation + adequate sleep',
     'pa_sleep': 'Physical activity + adequate sleep',
-    'smk_pa': 'Smoking cessation + physical activity',
-}
+    'smk_pa': 'Smoking cessation + physical activity'}
 
 MIN_ARM_N = 500
 MIN_ARM_EVENTS = 50
@@ -59,8 +62,7 @@ tab_cols = [
     'eid',
     '20116-0.0', '20116-2.0',
     '1160-0.0', '1160-2.0',
-    '20117-0.0',
-]
+    '20117-0.0']
 
 print("\nLoading longitudinal fields + alcohol")
 tab = pd.read_csv(file_tab, sep='\t', usecols=tab_cols)
@@ -71,13 +73,13 @@ out = pd.read_csv(file_out, sep='\t', usecols=['eid', OUTCOME])
 df  = tab.merge(out, on='eid', how='inner')
 print(f"  after outcome merge: {len(df):,}")
 
-# Load official imaging-visit PA field (22036-2.0), extracted by Kasia.
-# Replaces the proxy measure (884/894/904/914 instance 2) for imaging-visit PA.
+# Load official imaging-visit PA field (22036-2.0)
+# Replaces the proxy measure (884/894/904/914 instance 2) for imaging-visit PA
 pa22_img = pd.read_csv(os.path.join(BASE_PATH, 'output_22036_imaging.tsv'),
-                       sep='\t', usecols=['eid', '22036-2.0'])
+                    sep='\t', usecols=['eid', '22036-2.0'])
 df = df.merge(pa22_img, on='eid', how='left')
 print(f"  22036-2.0 (imaging PA official): "
-      f"{df['22036-2.0'].notna().sum():,} non-null")
+    f"{df['22036-2.0'].notna().sum():,} non-null")
 
 # 1B. Load confounders from exposure file (full population)
 
@@ -93,7 +95,7 @@ exp_cols_want = ['eid',
                 '2090-0.0',     # mental health doctor visit
                 '20107.1', '20107.2',   # father CVD history
                 '20110.1', '20110.2',   # mother CVD history
-                '20111.1', '20111.2',   # sibling CVD history
+                '20111.1', '20111.2'    # sibling CVD history
                 ]
 
 exp_header = pd.read_csv(file_exp, sep='\t', nrows=0).columns.tolist()
@@ -122,8 +124,7 @@ if not pa_parts:
 
 pa_all = (
     pd.concat(pa_parts, ignore_index=True)
-    .drop_duplicates('eid')
-)
+    .drop_duplicates('eid'))
 
 df = df.merge(pa_all, on='eid', how='left')
 print(f"  PA_active coverage after merge: {df['PA_active'].notna().sum():,} / {len(df):,}")
@@ -148,20 +149,17 @@ df.loc[_clip_neg_na(df['2090-0.0']).isna(), 'mental_doctor'] = np.nan
 
 # family history CVD — father (20107.1=heart disease, 20107.2=stroke)
 df['FH_cvd_f'] = (
-    (df['20107.1'] == 1) | (df['20107.2'] == 1)
-).astype(float)
+    (df['20107.1'] == 1) | (df['20107.2'] == 1)).astype(float)
 df.loc[df['20107.1'].isna() & df['20107.2'].isna(), 'FH_cvd_f'] = np.nan
 
 # family history CVD — mother
 df['FH_cvd_m'] = (
-    (df['20110.1'] == 1) | (df['20110.2'] == 1)
-).astype(float)
+    (df['20110.1'] == 1) | (df['20110.2'] == 1)).astype(float)
 df.loc[df['20110.1'].isna() & df['20110.2'].isna(), 'FH_cvd_m'] = np.nan
 
 # family history CVD — sibling
 df['FH_cvd_sib'] = (
-    (df['20111.1'] == 1) | (df['20111.2'] == 1)
-).astype(float)
+    (df['20111.1'] == 1) | (df['20111.2'] == 1)).astype(float)
 df.loc[df['20111.1'].isna() & df['20111.2'].isna(), 'FH_cvd_sib'] = np.nan
 
 # alcohol current drinker (20117-0.0 == 2)
@@ -221,8 +219,7 @@ events = events.reset_index()
 events['defined_baseline_date'] = pd.to_datetime(events['defined_baseline_date'])
 events['def_CVD_AF_HF_AFTER_date'] = (
     events['defined_baseline_date'] +
-    pd.to_timedelta(events['def_CVD_AF_HF_AFTER_days_from_baseline'], unit='D')
-)
+    pd.to_timedelta(events['def_CVD_AF_HF_AFTER_days_from_baseline'], unit='D'))
 
 img_dates = pd.read_csv(os.path.join(BASE_PATH, 'imaging_visit_date.tsv'),
                         sep='\t').rename(columns={'53-2.0': 'imaging_date'})
@@ -232,8 +229,7 @@ events = events.merge(img_dates, on='eid', how='left')
 events['event_before_imaging'] = (
     events['def_CVD_AF_HF_AFTER_date'].notna() &
     events['imaging_date'].notna() &
-    (events['def_CVD_AF_HF_AFTER_date'] < events['imaging_date'])
-)
+    (events['def_CVD_AF_HF_AFTER_date'] < events['imaging_date']))
 exclude_eids = set(events.loc[events['event_before_imaging'], 'eid'])
 
 # Source-level flags include participants who may not be present in the
@@ -291,8 +287,7 @@ def build_cohort(label, base_mask, treat_mask, ctrl_mask, restrict_mask=None):
         'treated_event_rate': treated_event_rate,
         'control_n': control_n, 'control_events': control_events,
         'control_event_rate': control_event_rate,
-        'feasible': feasible,
-    }
+        'feasible': feasible}
     return cohort, stats
 
 
@@ -334,8 +329,7 @@ _mask_specs = {
                 pa_b.notna()  & pa_i.notna()  &
                 (smk_b == 0)  & (pa_b == 0)),
         treat_mask=(smk_i == 1) & (pa_i == 1),
-        ctrl_mask= (smk_i == 0) & (pa_i == 0)),
-}
+        ctrl_mask= (smk_i == 0) & (pa_i == 0))}
 
 cohorts_main, cohorts_sub = {}, {}
 stats_main, stats_sub = {}, {}
@@ -347,14 +341,10 @@ for name, spec in _mask_specs.items():
     cohorts_sub[name], stats_sub[name] = build_cohort(
         f'{label} [sub]', **spec, restrict_mask=not_excluded)
 
-# --- Reverse-causality contamination check ---------------------------
+# Reverse-causality contamination check 
 # How much of the main analysis's outcome-positive signal comes from
 # participants whose CVD/AF/HF event occurred BEFORE their imaging visit
-# (i.e. their imaging-time behaviour may be a *reaction* to an event that
-# already happened, not a cause of a future one -- "sick quitter/sleeper"
-# bias). This was previously checked in an ad-hoc diagnostic script; it
-# is folded in here permanently since it's central to interpreting why
-# the sub-analysis event counts collapse relative to the main analysis.
+
 print("\n" + "=" * 68)
 print("Reverse-causality contamination check (main analysis cohorts)")
 print("  % of outcome-positive participants in each MAIN cohort whose "
@@ -459,11 +449,6 @@ def run_pipeline(cohorts, suffix, run_label):
 
     Returns results_df, evalue_df for the caller to combine across runs.
     """
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.preprocessing import StandardScaler
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
 
     print("\n" + "=" * 68)
     print(f"STEP 2 [{run_label}]: IPTW weight estimation + diagnostics")
@@ -669,16 +654,14 @@ def run_pipeline(cohorts, suffix, run_label):
         else:
             rd_ci = tuple(np.percentile(
                 rd_boots,
-                [100 * alpha / 2, 100 * (1 - alpha / 2)]
-            ))
+                [100 * alpha / 2, 100 * (1 - alpha / 2)]))
 
         if len(rr_boots) < min_valid:
             rr_ci = (np.nan, np.nan)
         else:
             rr_ci = tuple(np.percentile(
                 rr_boots,
-                [100 * alpha / 2, 100 * (1 - alpha / 2)]
-            ))
+                [100 * alpha / 2, 100 * (1 - alpha / 2)]))
 
         return rd_ci, rr_ci, len(rd_boots), len(rr_boots)
 
@@ -694,7 +677,7 @@ def run_pipeline(cohorts, suffix, run_label):
         'sleep'     : _nb3_cate.get(4, np.nan),   # arm 4: sleep only
         'smk_sleep' : _nb3_cate.get(5, np.nan),   # arm 5: no_smk + sleep
         'pa_sleep'  : _nb3_cate.get(6, np.nan),   # arm 6: PA + sleep
-        'smk_pa'    : _nb3_cate.get(3, np.nan),   # arm 3: no_smk + PA
+        'smk_pa'    : _nb3_cate.get(3, np.nan)    # arm 3: no_smk + PA
     }
 
     print(f"\n  Running weighted RD/RR + {N_BOOT}-sample bootstrap CI "
@@ -706,7 +689,8 @@ def run_pipeline(cohorts, suffix, run_label):
         control_events = int(wcoh.loc[wcoh['treatment'] == 0, OUTCOME].sum())
         treated_n = int((wcoh['treatment'] == 1).sum())
         control_n = int((wcoh['treatment'] == 0).sum())
-        feasible = 'OK' if (treated_n >= MIN_ARM_N and control_n >= MIN_ARM_N and treated_events >= MIN_ARM_EVENTS and control_events >= MIN_ARM_EVENTS) else 'LOW'
+        feasible = 'OK' if (treated_n >= MIN_ARM_N and control_n >= MIN_ARM_N and treated_events >= MIN_ARM_EVENTS 
+                            and control_events >= MIN_ARM_EVENTS) else 'LOW'
 
         print(f"    {label}...", end=' ', flush=True)
         rd, rr, r1, r0 = weighted_rd_rr(wcoh)
@@ -737,9 +721,8 @@ def run_pipeline(cohorts, suffix, run_label):
             'n_boot_rd_valid': n_boot_rd_valid,
             'n_boot_rr_valid': n_boot_rr_valid,
             'analysis_role': ('single-behaviour contrast'
-                              if name in PRIMARY_INTERVENTIONS
-                              else 'exploratory combined contrast'),
-        })
+                            if name in PRIMARY_INTERVENTIONS
+                            else 'exploratory combined contrast')})
 
     results_df = pd.DataFrame(result_rows)
     results_path = os.path.join(OUTPUT_DIR, f'msm_results{suffix}.csv')
@@ -782,7 +765,7 @@ def run_pipeline(cohorts, suffix, run_label):
         return ci_bound, evalue(ci_bound)
 
     print(f"\n  {'Analysis':<36} {'RR':>7} {'E-val(point)':>13} "
-          f"{'CI-bound RR':>11} {'E-val(CI)':>10}  Note")
+        f"{'CI-bound RR':>11} {'E-val(CI)':>10}  Note")
     print("  " + "-" * 110)
 
     evalue_rows = []
@@ -813,7 +796,7 @@ def run_pipeline(cohorts, suffix, run_label):
         evc_text = f"{ev_ci:.3f}" if pd.notna(ev_ci) else "nan"
 
         print(f"  {row['analysis']:<36} {rr_text:>7} {evp_text:>13} "
-              f"{cib_text:>11} {evc_text:>10}  {note}")
+            f"{cib_text:>11} {evc_text:>10}  {note}")
 
         evalue_rows.append({
             'analysis': row['analysis'],
@@ -826,8 +809,7 @@ def run_pipeline(cohorts, suffix, run_label):
             'evalue_point': ev_point,
             'ci_bound_used': ci_bound,
             'evalue_ci': ev_ci,
-            'note': note,
-        })
+            'note': note})
 
     evalue_df = pd.DataFrame(evalue_rows)
     evalue_path = os.path.join(OUTPUT_DIR, f'msm_evalues{suffix}.csv')
@@ -837,18 +819,14 @@ def run_pipeline(cohorts, suffix, run_label):
     return results_df, evalue_df
 
 
-# ============================================================
 # Run pipeline twice: MAIN analysis, then SUB-ANALYSIS
-# ============================================================
 results_main, evalues_main = run_pipeline(
     cohorts_main, suffix='', run_label='FULL-COHORT DIAGNOSTIC')
 
 results_sub, evalues_sub = run_pipeline(
     cohorts_sub, suffix='_sub', run_label='POST-IMAGING OUTCOME SUB-ANALYSIS')
 
-# ============================================================
 # Combined comparison table: main vs sub, side by side
-# ============================================================
 print("\n" + "=" * 100)
 
 def _f(v):

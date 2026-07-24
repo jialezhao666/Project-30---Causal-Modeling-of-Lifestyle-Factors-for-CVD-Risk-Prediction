@@ -11,37 +11,36 @@ INPUT_PATH = os.path.join(HRS_BASE, "outputs", "hrs_cohort_processed.csv")
 OUTPUT_DIR = os.path.join(HRS_BASE, "outputs")
 UKB_OUTPUT_DIR = os.path.expanduser("~/my_ukb_thesis/phase_II/outputs")
 
-# UKB Phase I trained coefficients from baseline_model_training
+# UKB Phase I trained coefficients
+# Final unpenalised logistic regression fitted on the 70% model-development set
 UKB_COEFS = {
-    "const": -2.9369,
-    "age_defined_baseline": 0.7021,
-    "BMI": 0.2287,
-    "sleep_hrs": -0.0284,
+    "const": -2.9226,
+    "age_defined_baseline": 0.7010,
+    "BMI": 0.2274,
+    "sleep_hrs": -0.0253,
     "genetic_sex": 0.7574,
-    "mental_doctor": 0.2095,
-    "uni_degree": -0.1824,
-    "FH_cvd_f": 0.1781,
-    "FH_cvd_m": 0.2348,
-    "FH_cvd_sib": 0.2457,
-    "smk_prev": 0.1369,
-    "smk_curr": 0.5825,
-    "alc_curr": -0.2779,
-    "PA_active": -0.0900,
-}
+    "mental_doctor": 0.2068,
+    "uni_degree": -0.1793,
+    "FH_cvd_f": 0.1738,
+    "FH_cvd_m": 0.2328,
+    "FH_cvd_sib": 0.2473,
+    "smk_prev": 0.1327,
+    "smk_curr": 0.5749,
+    "alc_curr": -0.2829,
+    "PA_active": -0.0955}
 
-# StandardScaler parameters fitted on UKB Split B (continuous features only)
+# StandardScaler parameters fitted on UKB 70% model-development set
+# continuous features only
 UKB_SCALER_PARAMS = {
-    "age_defined_baseline": {"mean": 56.207423427048234, "std": 8.10607250287873},
-    "BMI": {"mean": 27.19264814598736, "std": 4.646651987383076},
-    "sleep_hrs": {"mean": 7.147008420143575, "std": 1.0817655324133455},
-}
+    "age_defined_baseline": {"mean": 56.213115, "std": 8.104756},
+    "BMI": {"mean": 27.196404, "std": 4.649991},
+    "sleep_hrs": {"mean": 7.147444, "std": 1.078632}}
 
-# True Split B means for family history variables 
+# Means from the UKB 70% model-development set for family history variables
 UKB_FH_MEANS = {
-    "FH_cvd_f": 0.382434,
-    "FH_cvd_m": 0.278677,
-    "FH_cvd_sib": 0.121977,
-}
+    "FH_cvd_f": 0.382686,
+    "FH_cvd_m": 0.279288,
+    "FH_cvd_sib": 0.122072}
 
 # UKB Split C internal test performance 
 #UKB_SPLITC_AUC = 0.7271
@@ -50,8 +49,7 @@ UKB_FH_MEANS = {
 FEATURE_ORDER = [
     "age_defined_baseline", "BMI", "sleep_hrs", "genetic_sex",
     "mental_doctor", "uni_degree", "FH_cvd_f", "FH_cvd_m", "FH_cvd_sib",
-    "smk_prev", "smk_curr", "alc_curr", "PA_active"
-]
+    "smk_prev", "smk_curr", "alc_curr", "PA_active"]
 
 
 def build_features(cohort_model, mental_doctor_threshold=4):
@@ -126,15 +124,12 @@ def calibration_metrics(y_true, pred_prob):
 
     intercept_model = sm.GLM(
         y, np.ones((len(y), 1)),
-        family=sm.families.Binomial(),
-        offset=lp
-    ).fit()
+        family=sm.families.Binomial(), offset=lp).fit()
     intercept_ci = np.asarray(intercept_model.conf_int())[0]
 
     slope_model = sm.GLM(
         y, sm.add_constant(lp),
-        family=sm.families.Binomial()
-    ).fit()
+        family=sm.families.Binomial()).fit()
     slope_ci = np.asarray(slope_model.conf_int())[1]
 
     auc_ci = bootstrap_metric_ci(y, pred_prob, roc_auc_score, seed=42)
@@ -159,8 +154,7 @@ def calibration_metrics(y_true, pred_prob):
         "intercept_ci_high": float(intercept_ci[1]),
         "slope": float(slope_model.params[1]),
         "slope_ci_low": float(slope_ci[0]),
-        "slope_ci_high": float(slope_ci[1])
-    }
+        "slope_ci_high": float(slope_ci[1])}
 
 
 def predict_and_evaluate(X_hrs, y_true, label=""):
@@ -196,9 +190,9 @@ def plot_roc_and_calibration(y_true_hrs, pred_prob_hrs, save_path=None):
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
 
-    ax1.plot(fpr_ukb, tpr_ukb, label=f"UKB Test Set (AUC = {ukb_metrics['auc']:.3f})",
+    ax1.plot(fpr_ukb, tpr_ukb, label=f"UKB Test Set (C-statistic = {ukb_metrics['auc']:.3f})",
             color="#4EACC5", lw=2)
-    ax1.plot(fpr_hrs, tpr_hrs, label=f"HRS transport (AUC = {hrs_metrics['auc']:.3f})",
+    ax1.plot(fpr_hrs, tpr_hrs, label=f"HRS transport (C-statistic = {hrs_metrics['auc']:.3f})",
             color="#E76254", lw=2, linestyle="--")
     ax1.plot([0, 1], [0, 1], color="grey", linestyle="--", lw=1,
             label="No discrimination")
@@ -234,8 +228,7 @@ def plot_roc_and_calibration(y_true_hrs, pred_prob_hrs, save_path=None):
         f"UKB: Brier = {ukb_metrics['brier']:.4f}, intercept = {ukb_metrics['intercept']:.3f}, "
         f"slope = {ukb_metrics['slope']:.3f}\n"
         f"HRS: Brier = {hrs_metrics['brier']:.4f}, intercept = {hrs_metrics['intercept']:.3f}, "
-        f"slope = {hrs_metrics['slope']:.3f}"
-    )
+        f"slope = {hrs_metrics['slope']:.3f}")
 
     ax2.text(0.97, 0.04, metric_text, transform=ax2.transAxes,
             ha="right", va="bottom", fontsize=9,
@@ -252,8 +245,7 @@ def plot_roc_and_calibration(y_true_hrs, pred_prob_hrs, save_path=None):
 
     metrics_df = pd.DataFrame([
         {"dataset": "UKB Split C", **ukb_metrics},
-        {"dataset": "HRS transported model", **hrs_metrics}
-    ])
+        {"dataset": "HRS transported model", **hrs_metrics}])
 
     metrics_path = os.path.join(OUTPUT_DIR, "ukb_hrs_validation_metrics.csv")
     metrics_df.to_csv(metrics_path, index=False)
@@ -268,8 +260,7 @@ def main():
     cohort = pd.read_csv(INPUT_PATH)
     cohort_model = cohort.dropna(subset=[
         "incident_cvd", "smk_curr", "smk_prev", "PA_active", "r13agey_b",
-        "ragender", "r13bmi", "uni_degree", "r13cesd", "alc_curr"
-    ]).copy()
+        "ragender", "r13bmi", "uni_degree", "r13cesd", "alc_curr"]).copy()
     print(f"Sample size for Phase I transport validation: {len(cohort_model)}")
 
     y_true = cohort_model["incident_cvd"]

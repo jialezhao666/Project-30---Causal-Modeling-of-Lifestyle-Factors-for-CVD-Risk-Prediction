@@ -17,13 +17,11 @@ NEEDED_COLS = [
     "r13cesd", "r13depres",
     "r13drinkn",
     "r13heart", "r14heart", "r15heart", "r16heart",
-    "r13strok", "r14strok", "r15strok", "r16strok",
-]
+    "r13strok", "r14strok", "r15strok", "r16strok"]
 
 BASELINE_REQUIRED = [
     "r13smokev", "r13smoken", "r13vgactx", "r13sleep",
-    "r13heart", "r13strok", "r13bmi", "r13agey_b", "ragender"
-]
+    "r13heart", "r13strok", "r13bmi", "r13agey_b", "ragender"]
 
 FOLLOWUP_COLS = ["r14heart", "r15heart", "r16heart", "r14strok", "r15strok", "r16strok"]
 

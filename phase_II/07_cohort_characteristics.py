@@ -10,7 +10,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 OUTCOME = 'def_CVD_AF_HF_AFTER'
 
-# --- helper functions for deriving treatments ---
+# helper functions for deriving treatments 
 def _clip_neg_na(x):
     """UKB negative codes (-1 don't know, -3 prefer not answer) to NaN."""
     c = x.astype(float)
